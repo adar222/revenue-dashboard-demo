@@ -66,6 +66,11 @@ def show_action_center_top10(df):
     top10 = merged.reindex(merged['Δ'].abs().sort_values(ascending=False).index).head(10)
     top10_display = top10.reset_index().rename(columns={'index': 'Package'})
 
+    # Ensure these columns are in the display DataFrame
+    top10_display['Last 3d Cost'] = top10_display['Last 3d Cost'] if 'Last 3d Cost' in top10_display.columns else top10['Last 3d Cost'].values
+    top10_display['Margin Alert'] = top10['Margin Alert'].values
+
+
     # Format columns
     def fmt_money(x):
         return f"${int(round(x)):,}" if pd.notnull(x) else ""
