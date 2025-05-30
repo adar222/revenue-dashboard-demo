@@ -1,13 +1,14 @@
 import streamlit as st
-from dashboard import show_revenue_trends
+import pandas as pd
+from action_center import show_action_center_top10
 
-st.set_page_config(page_title="Revenue Insight Dashboard Demo", layout="wide")
+st.set_page_config(page_title="Revenue Action Center Demo", layout="wide")
 
-st.sidebar.title("Demo Controls")
-advertiser = st.sidebar.selectbox("Select Advertiser", ["Magnite", "OpenX", "Pubmatic"])
+st.title("Revenue Action Center")
 
-st.title("Revenue Insight Dashboard (Demo Only)")
-show_revenue_trends(advertiser)
-
-# Placeholder for more dashboard sections as you grow:
-st.header("More sections coming soon...")
+uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx"])
+if uploaded_file:
+    df = pd.read_excel(uploaded_file)
+    show_action_center_top10(df)
+else:
+    st.info("Please upload your Excel file to see action items.")
