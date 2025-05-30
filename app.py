@@ -15,21 +15,31 @@ if uploaded_file:
     df = pd.read_excel(uploaded_file)
     
     # --- Filtering ---
-    advertisers = df['Advertiser'].dropna().unique()
-    channels = df['Channel'].dropna().unique()
-    formats = df['Ad format'].dropna().unique()
-    
-    default_adv = advertisers[0] if len(advertisers) else None
-    default_chn = channels[0] if len(channels) else None
-    default_fmt = formats[0] if len(formats) else None
+advertisers = df['Advertiser'].dropna().unique().tolist()
+channels = df['Channel'].dropna().unique().tolist()
+formats = df['Ad format'].dropna().unique().tolist()
 
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        advertiser = st.selectbox("Advertiser", options=advertisers, index=0 if default_adv in advertisers else 0)
-    with col2:
-        channel = st.selectbox("Channel", options=channels, index=0 if default_chn in channels else 0)
-    with col3:
-        ad_format = st.selectbox("Ad Format", options=formats, index=0 if default_fmt in formats else 0)
+advertisers = ["(All)"] + advertisers
+channels = ["(All)"] + channels
+formats = ["(All)"] + formats
+
+col1, col2, col3 = st.columns(3)
+with col1:
+    advertiser = st.selectbox("Advertiser", options=advertisers, index=0)
+with col2:
+    channel = st.selectbox("Channel", options=channels, index=0)
+with col3:
+    ad_format = st.selectbox("Ad Format", options=formats, index=0)
+
+# Filtered data logic: apply filter only if not "(All)"
+filtered = df.copy()
+if advertiser != "(All)":
+    filtered = filtered[filtered['Advertiser'] == advertiser]
+if channel != "(All)":
+    filtered = filtered[filtered['Channel'] == channel]
+if ad_format != "(All)":
+    filtered = filtered[filtered['Ad format'] == ad_format]
+
 
     # Filtered data
     filtered = df[
