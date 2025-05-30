@@ -12,6 +12,10 @@ uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx"])
 if uploaded_file:
     df = pd.read_excel(uploaded_file)
 
+    # --- NEW: Preview your data for debugging! ---
+    st.markdown("#### Data Preview (first 5 rows)")
+    st.dataframe(df.head())  # <--- Add this line
+
     # --- Filtering ---
     advertisers = df['Advertiser'].dropna().unique().tolist()
     channels = df['Channel'].dropna().unique().tolist()
