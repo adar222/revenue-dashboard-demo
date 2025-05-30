@@ -48,8 +48,11 @@ def show_action_center_top10(df):
         else:
             msg.append('Stable 👍')
         # Margin alert
-        if 'Last 3d Margin' in row and row['Last 3d Margin'] < 0.25:
-            msg.append('Low margin ⚠️')
+        try:
+            if float(row['Last 3d Margin']) < 0.25:
+                msg.append('Low margin ⚠️')
+        except Exception:
+            pass
         return " | ".join(msg)
     merged['Action'] = merged.apply(action_row, axis=1)
     
@@ -57,14 +60,18 @@ def show_action_center_top10(df):
     top10 = merged.reindex(merged['Δ'].abs().sort_values(ascending=False).index).head(10)
     top10_display = top10.reset_index().rename(columns={'index':'Package'})
     
-    # Inline row highlight for margin
+    # Inline row highlight for margin (do BEFORE formatting to strings)
     def highlight_margin(row):
-        if 'Last 3d Margin' in row and row['Last 3d Margin'] < 0.25:
-            return ['background-color: #fff3cd'] * len(row)
-        else:
-            return [''] * len(row)
+        try:
+            if float(row['Last 3d Margin']) < 0.25:
+                return ['background-color: #fff3cd'] * len(row)
+        except Exception:
+            pass
+        return [''] * len(row)
     
-    # Format columns (no decimals, $ for revenue, % with sign for change)
+    styled_df = top10_display.style.apply(highlight_margin, axis=1)
+    
+    # NOW do formatting for display
     def fmt_money(x):
         return f"${int(round(x)):,}" if pd.notnull(x) else ""
     def fmt_pct(x):
@@ -74,19 +81,20 @@ def show_action_center_top10(df):
     def fmt_margin(x):
         return f"{x:.0%}" if pd.notnull(x) else ""
     
-    top10_display['Last 3d Revenue'] = top10_display['Last 3d Revenue'].apply(fmt_money)
-    top10_display['Prev 3d Revenue'] = top10_display['Prev 3d Revenue'].apply(fmt_money)
-    top10_display['Δ'] = top10_display['Δ'].apply(fmt_money)
-    top10_display['% Change'] = top10_display['% Change'].apply(fmt_pct)
-    top10_display['Last 3d Fill'] = top10_display['Last 3d Fill'].apply(fmt_fill)
-    top10_display['Prev 3d Fill'] = top10_display['Prev 3d Fill'].apply(fmt_fill)
-    top10_display['Fill Δ'] = top10_display['Fill Δ'].apply(lambda x: fmt_pct(x*100))
+    for col in ['Last 3d Revenue', 'Prev 3d Revenue', 'Δ']:
+        if col in top10_display:
+            top10_display[col] = top10_display[col].apply(fmt_money)
+    if '% Change' in top10_display:
+        top10_display['% Change'] = top10_display['% Change'].apply(fmt_pct)
+    for col in ['Last 3d Fill', 'Prev 3d Fill']:
+        if col in top10_display:
+            top10_display[col] = top10_display[col].apply(fmt_fill)
+    if 'Fill Δ' in top10_display:
+        top10_display['Fill Δ'] = top10_display['Fill Δ'].apply(lambda x: fmt_pct(x*100))
     if 'Last 3d Margin' in top10_display:
         top10_display['Last 3d Margin'] = top10_display['Last 3d Margin'].apply(fmt_margin)
     if 'Prev 3d Margin' in top10_display:
         top10_display['Prev 3d Margin'] = top10_display['Prev 3d Margin'].apply(fmt_margin)
-    
-    styled_df = top10_display.style.apply(highlight_margin, axis=1)
     
     st.subheader("Action Center: Top 10 Trending Packages (3d vs Prev 3d)")
     st.caption(f"Latest period: {last3[0].strftime('%Y-%m-%d')} to {last3[-1].strftime('%Y-%m-%d')}")
