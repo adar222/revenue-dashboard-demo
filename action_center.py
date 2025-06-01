@@ -7,8 +7,6 @@ def show_action_center_top10(df):
     df['Date'] = pd.to_datetime(df['Date'])
     df['Gross Revenue'] = pd.to_numeric(df['Gross Revenue'], errors='coerce').fillna(0)
     df['FillRate'] = pd.to_numeric(df['FillRate'], errors='coerce').fillna(0)
-    if 'Margin' in df.columns:
-        df['Margin'] = pd.to_numeric(df['Margin'], errors='coerce').fillna(0)
     
     # Find latest 6 dates (for 3+3 comparison)
     latest_dates = sorted(df['Date'].unique())[-6:]
@@ -18,15 +16,13 @@ def show_action_center_top10(df):
     # Revenue & fill rate for last 3 days and prev 3 days, by package
     last_rev = df[df['Date'].isin(last3)].groupby('Package').agg({
         'Gross Revenue':'sum',
-        'FillRate':'mean',
-        'Margin': 'mean' if 'Margin' in df.columns else 'first'
-    }).rename(columns={'Gross Revenue':'Last 3d Revenue','FillRate':'Last 3d Fill','Margin': 'Last 3d Margin'})
+        'FillRate':'mean'
+    }).rename(columns={'Gross Revenue':'Last 3d Revenue','FillRate':'Last 3d Fill'})
     
     prev_rev = df[df['Date'].isin(prev3)].groupby('Package').agg({
         'Gross Revenue':'sum',
-        'FillRate':'mean',
-        'Margin': 'mean' if 'Margin' in df.columns else 'first'
-    }).rename(columns={'Gross Revenue':'Prev 3d Revenue','FillRate':'Prev 3d Fill','Margin': 'Prev 3d Margin'})
+        'FillRate':'mean'
+    }).rename(columns={'Gross Revenue':'Prev 3d Revenue','FillRate':'Prev 3d Fill'})
     
     # Merge and compute trends
     merged = last_rev.merge(prev_rev, left_index=True, right_index=True, how='outer').fillna(0)
@@ -36,69 +32,65 @@ def show_action_center_top10(df):
     )
     merged['Fill Δ'] = merged['Last 3d Fill'] - merged['Prev 3d Fill']
     
-    # Action recommendation logic
+    # Action recommendation logic (with better formatting)
     def action_row(row):
-        msg = []
         if row['Δ'] < 0 and abs(row['% Change']) > 30:
-            msg.append('Investigate drop 🚨')
+            return 'Investigate drop 🚨'
         elif row['Δ'] > 0 and row['% Change'] > 50:
-            msg.append('Scale up! 🚀')
+            return 'Scale up! 🚀'
         elif row['Fill Δ'] < -0.05:
-            msg.append('Check fill issues ⚠️')
+            return 'Check fill issues ⚠️'
         else:
-            msg.append('Stable 👍')
-        # Margin alert
-        try:
-            if float(row['Last 3d Margin']) < 0.25:
-                msg.append('Low margin ⚠️')
-        except Exception:
-            pass
-        return " | ".join(msg)
+            return 'Stable 👍'
     merged['Action'] = merged.apply(action_row, axis=1)
     
     # Top 10 by absolute revenue change
     top10 = merged.reindex(merged['Δ'].abs().sort_values(ascending=False).index).head(10)
     top10_display = top10.reset_index().rename(columns={'index':'Package'})
-    
-    # Inline row highlight for margin (do BEFORE formatting to strings)
-    def highlight_margin(row):
-        try:
-            if float(row['Last 3d Margin']) < 0.25:
-                return ['background-color: #fff3cd'] * len(row)
-        except Exception:
-            pass
-        return [''] * len(row)
-    
-    styled_df = top10_display.style.apply(highlight_margin, axis=1)
-    
-    # NOW do formatting for display
+
+    # --------------------------
+    # Margin Drop Alert (<25%) logic
+    # --------------------------
+    if 'Margin' in df.columns:
+        # Calculate avg margin for each package (last 3d and prev 3d)
+        last_margin = df[df['Date'].isin(last3)].groupby('Package')['Margin'].mean()
+        prev_margin = df[df['Date'].isin(prev3)].groupby('Package')['Margin'].mean()
+        margin_drop_df = pd.DataFrame({'Last 3d Margin': last_margin, 'Prev 3d Margin': prev_margin}).dropna()
+        margin_drop_df['Margin Δ'] = margin_drop_df['Last 3d Margin'] - margin_drop_df['Prev 3d Margin']
+        margin_drop_df['Margin % Δ'] = (margin_drop_df['Margin Δ'] / margin_drop_df['Prev 3d Margin']) * 100
+        # Find packages with margin drop below -25%
+        margin_alerts = margin_drop_df[margin_drop_df['Margin % Δ'] < -25]
+        if not margin_alerts.empty:
+            st.warning("⚠️ **Margin Drop Alert:** The following packages have a margin drop of more than 25% compared to the previous period. Check campaign settings or demand quality:")
+            # Format percent columns for display
+            margin_alerts_display = margin_alerts.reset_index().copy()
+            margin_alerts_display['Prev 3d Margin'] = margin_alerts_display['Prev 3d Margin'].apply(lambda x: f"{x:.2%}")
+            margin_alerts_display['Last 3d Margin'] = margin_alerts_display['Last 3d Margin'].apply(lambda x: f"{x:.2%}")
+            margin_alerts_display['Margin % Δ'] = margin_alerts_display['Margin % Δ'].apply(lambda x: f"{x:.0f}%")
+            st.dataframe(
+                margin_alerts_display[['Package', 'Prev 3d Margin', 'Last 3d Margin', 'Margin % Δ']],
+                use_container_width=True
+            )
+
+    # Format columns (no decimals, $ for revenue, % with sign for change)
     def fmt_money(x):
         return f"${int(round(x)):,}" if pd.notnull(x) else ""
     def fmt_pct(x):
         return f"{int(round(x)):+d}%" if pd.notnull(x) else ""
     def fmt_fill(x):
         return f"{x:.0%}" if pd.notnull(x) else ""
-    def fmt_margin(x):
-        return f"{x:.0%}" if pd.notnull(x) else ""
     
-    for col in ['Last 3d Revenue', 'Prev 3d Revenue', 'Δ']:
-        if col in top10_display:
-            top10_display[col] = top10_display[col].apply(fmt_money)
-    if '% Change' in top10_display:
-        top10_display['% Change'] = top10_display['% Change'].apply(fmt_pct)
-    for col in ['Last 3d Fill', 'Prev 3d Fill']:
-        if col in top10_display:
-            top10_display[col] = top10_display[col].apply(fmt_fill)
-    if 'Fill Δ' in top10_display:
-        top10_display['Fill Δ'] = top10_display['Fill Δ'].apply(lambda x: fmt_pct(x*100))
-    if 'Last 3d Margin' in top10_display:
-        top10_display['Last 3d Margin'] = top10_display['Last 3d Margin'].apply(fmt_margin)
-    if 'Prev 3d Margin' in top10_display:
-        top10_display['Prev 3d Margin'] = top10_display['Prev 3d Margin'].apply(fmt_margin)
+    top10_display['Last 3d Revenue'] = top10_display['Last 3d Revenue'].apply(fmt_money)
+    top10_display['Prev 3d Revenue'] = top10_display['Prev 3d Revenue'].apply(fmt_money)
+    top10_display['Δ'] = top10_display['Δ'].apply(fmt_money)
+    top10_display['% Change'] = top10_display['% Change'].apply(fmt_pct)
+    top10_display['Last 3d Fill'] = top10_display['Last 3d Fill'].apply(fmt_fill)
+    top10_display['Prev 3d Fill'] = top10_display['Prev 3d Fill'].apply(fmt_fill)
+    top10_display['Fill Δ'] = top10_display['Fill Δ'].apply(lambda x: fmt_pct(x*100))
     
     st.subheader("Action Center: Top 10 Trending Packages (3d vs Prev 3d)")
     st.caption(f"Latest period: {last3[0].strftime('%Y-%m-%d')} to {last3[-1].strftime('%Y-%m-%d')}")
-    st.dataframe(styled_df, use_container_width=True)
+    st.dataframe(top10_display, use_container_width=True)
 
 def show_dropped_channels(df):
     # Find channels with a drop >80% in publisher impressions from prev 3d to last 3d
