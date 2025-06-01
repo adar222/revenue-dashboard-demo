@@ -49,28 +49,22 @@ def show_action_center_top10(df):
     top10_display = top10.reset_index().rename(columns={'index':'Package'})
 
     # --------------------------
-    # Margin Drop Alert (<25%) logic
-    # --------------------------
+       # ... previous code ...
+
+    # Margin Alert (last 3d margin < 25%)
     if 'Margin' in df.columns:
-        # Calculate avg margin for each package (last 3d and prev 3d)
         last_margin = df[df['Date'].isin(last3)].groupby('Package')['Margin'].mean()
-        prev_margin = df[df['Date'].isin(prev3)].groupby('Package')['Margin'].mean()
-        margin_drop_df = pd.DataFrame({'Last 3d Margin': last_margin, 'Prev 3d Margin': prev_margin}).dropna()
-        margin_drop_df['Margin Δ'] = margin_drop_df['Last 3d Margin'] - margin_drop_df['Prev 3d Margin']
-        margin_drop_df['Margin % Δ'] = (margin_drop_df['Margin Δ'] / margin_drop_df['Prev 3d Margin']) * 100
-        # Find packages with margin drop below -25%
-        margin_alerts = margin_drop_df[margin_drop_df['Margin % Δ'] < -25]
+        # Find packages with current margin (last 3d) < 25%
+        margin_alerts = last_margin[last_margin < 0.25]
         if not margin_alerts.empty:
-            st.warning("⚠️ **Margin Drop Alert:** The following packages have a margin drop of more than 25% compared to the previous period. Check campaign settings or demand quality:")
-            # Format percent columns for display
-            margin_alerts_display = margin_alerts.reset_index().copy()
-            margin_alerts_display['Prev 3d Margin'] = margin_alerts_display['Prev 3d Margin'].apply(lambda x: f"{x:.2%}")
+            st.warning("⚠️ **Margin Alert:** The following packages have margin below 25% in the last 3 days. Review pricing, costs, or demand mix:")
+            margin_alerts_display = margin_alerts.reset_index().rename(columns={'Margin':'Last 3d Margin'})
             margin_alerts_display['Last 3d Margin'] = margin_alerts_display['Last 3d Margin'].apply(lambda x: f"{x:.2%}")
-            margin_alerts_display['Margin % Δ'] = margin_alerts_display['Margin % Δ'].apply(lambda x: f"{x:.0f}%")
-            st.dataframe(
-                margin_alerts_display[['Package', 'Prev 3d Margin', 'Last 3d Margin', 'Margin % Δ']],
-                use_container_width=True
-            )
+            st.dataframe(margin_alerts_display, use_container_width=True)
+
+    st.subheader("Action Center: Top 10 Trending Packages (3d vs Prev 3d)")
+    st.caption(f"Latest period: {last3[0].strftime('%Y-%m-%d')} to {last3[-1].strftime('%Y-%m-%d')}")
+    st.dataframe(top10_display, use_container_width=True)
 
     # Format columns (no decimals, $ for revenue, % with sign for change)
     def fmt_money(x):
