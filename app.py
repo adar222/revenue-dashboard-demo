@@ -1,5 +1,3 @@
-# app.py
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -9,7 +7,6 @@ import openai
 
 st.set_page_config(page_title="Revenue Insight Dashboard", layout="wide")
 
-# --- OPENAI API KEY ---
 if "OPENAI_API_KEY" not in st.secrets:
     openai.api_key = st.text_input(
         "Enter your OpenAI API key:",
@@ -32,8 +29,7 @@ if uploaded_file is None:
 
 @st.cache_data
 def load_data(excel_bytes):
-    df = pd.read_excel(excel_bytes)
-    # Only keep required columns and rename for consistency
+    # Explicitly map your actual Excel headers to the expected dashboard fields
     col_map = {
         "Product": "Product",
         "Date": "Date",
@@ -45,10 +41,14 @@ def load_data(excel_bytes):
         "IVTRate": "IVTRate",
         "RPM": "RPM"
     }
-    df = df[[col for col in col_map if col in df.columns]]
-    for c in col_map:
-        if c in df.columns:
-            df.rename(columns={c: col_map[c]}, inplace=True)
+    df = pd.read_excel(excel_bytes)
+    # Keep and rename only the required columns for dashboard logic
+    required_cols = list(col_map.keys())
+    for col in required_cols:
+        if col not in df.columns:
+            raise KeyError(f"Column '{col}' not found in the uploaded file.")
+    df = df[required_cols]
+    df.rename(columns=col_map, inplace=True)
     # Data type conversions
     df["Date"] = pd.to_datetime(df["Date"])
     for num_col in ["GrossRevenue", "Cost", "PublisherImpressions", "AdvImpressionsClean", "IVTRate", "RPM"]:
@@ -65,6 +65,7 @@ try:
     df = load_data(uploaded_file)
 except Exception as e:
     st.error(f"❌ Error loading data: {e}")
+    st.write("Excel columns found:", pd.read_excel(uploaded_file, nrows=0).columns.tolist())
     st.stop()
 
 min_date = df["Date"].min().date()
