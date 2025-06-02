@@ -1,23 +1,31 @@
 import streamlit as st
-import pandas as pd
 
 def show_ai_insights(df):
-    # ---- Logic for Current/Previous Day ----
+    # Convert Date to datetime
     df['Date'] = pd.to_datetime(df['Date'])
+
+    # Sort by date (just in case)
+    df = df.sort_values('Date')
+
+    # Find latest date and previous date with data
     latest_date = df['Date'].max()
     previous_date = df[df['Date'] < latest_date]['Date'].max()
 
+    # Get "current day" and "previous day" row (for one package—adapt as needed!)
+    # If you want to filter by specific package, add here!
     df_current = df[df['Date'] == latest_date].iloc[0]
     df_prev = df[df['Date'] == previous_date].iloc[0]
 
-    # ---- Calculate Change ----
-    growth = ((df_current["Gross Revenue"] - df_prev["Gross Revenue"]) / df_prev["Gross Revenue"]) * 100 if df_prev["Gross Revenue"] > 0 else float('inf')
+    # Calculate % change
+    prev_rev = df_prev['Gross Revenue']
+    curr_rev = df_current['Gross Revenue']
+    growth = ((curr_rev - prev_rev) / prev_rev * 100) if prev_rev != 0 else float('inf')
 
-    # ---- Render Card ----
+    # Card
     st.header("🤖 AI Insights: Top Revenue Changes (Biggest Movers)")
     st.markdown(
         f"""
-        <span style="color:#22B573;font-size:20px;"><b>🔥 paint.by.number.pixel.art.coloring.drawing.puzzle (wbe - RICH_TEXT)</b></span>
+        <span style="color:#22B573;font-size:20px;"><b>🔥 {df_current['Package']} ({df_current['Ad format']})</b></span>
         """,
         unsafe_allow_html=True
     )
@@ -25,28 +33,27 @@ def show_ai_insights(df):
     st.markdown(
         f"""
         <span style="font-size:16px;">
-        <b>{latest_date.strftime('%Y-%m-%d')}</b>: Gross Revenue increased by <b>{growth:.1f}%</b>
-        (from <b>${df_prev["Gross Revenue"]}</b> to <b>${df_current["Gross Revenue"]}</b>)
+        <b>{latest_date.strftime('%Y-%m-%d')}</b>: Gross Revenue changed by <b>{growth:.1f}%</b>
+        (from <b>${prev_rev:.2f}</b> to <b>${curr_rev:.2f}</b>)
         </span>
         """,
         unsafe_allow_html=True
     )
 
     cols = st.columns([2, 2, 1, 2])
-
     with cols[0]:
         st.markdown("#### Previous Day")
         st.write(f"Date: {previous_date.strftime('%Y-%m-%d')}")
-        st.write(f"Gross Revenue: ${df_prev['Gross Revenue']}")
-        st.write(f"eCPM: ${df_prev['eCPM']}")
-        st.write(f"Fill Rate: {df_prev['Fill Rate']}%")
+        st.write(f"Gross Revenue: ${df_prev['Gross Revenue']:.2f}")
+        st.write(f"eCPM: ${df_prev['eCPM']:.2f}")
+        st.write(f"Fill Rate: {df_prev['FillRate']:.2%}")
 
     with cols[1]:
         st.markdown("#### Current Day")
         st.write(f"Date: {latest_date.strftime('%Y-%m-%d')}")
-        st.write(f"Gross Revenue: ${df_current['Gross Revenue']}")
-        st.write(f"eCPM: ${df_current['eCPM']}")
-        st.write(f"Fill Rate: {df_current['Fill Rate']}%")
+        st.write(f"Gross Revenue: ${df_current['Gross Revenue']:.2f}")
+        st.write(f"eCPM: ${df_current['eCPM']:.2f}")
+        st.write(f"Fill Rate: {df_current['FillRate']:.2%}")
 
     with cols[2]:
         st.write("")
