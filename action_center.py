@@ -3,6 +3,12 @@ import pandas as pd
 import numpy as np
 
 def show_action_center_top10(df):
+    required_cols = ['Date', 'Gross Revenue', 'FillRate', 'Package']
+    missing = [col for col in required_cols if col not in df.columns]
+    if missing:
+        st.warning(f"Missing required columns: {', '.join(missing)}")
+        return
+
     # Convert types and clean up
     df['Date'] = pd.to_datetime(df['Date'])
     df['Gross Revenue'] = pd.to_numeric(df['Gross Revenue'], errors='coerce').fillna(0)
@@ -48,13 +54,9 @@ def show_action_center_top10(df):
     top10 = merged.reindex(merged['Δ'].abs().sort_values(ascending=False).index).head(10)
     top10_display = top10.reset_index().rename(columns={'index':'Package'})
 
-    # --------------------------
-       # ... previous code ...
-
     # Margin Alert (last 3d margin < 25%)
     if 'Margin' in df.columns:
         last_margin = df[df['Date'].isin(last3)].groupby('Package')['Margin'].mean()
-        # Find packages with current margin (last 3d) < 25%
         margin_alerts = last_margin[last_margin < 0.25]
         if not margin_alerts.empty:
             st.warning("⚠️ **Margin Alert:** The following packages have margin below 25% in the last 3 days. Review pricing, costs, or demand mix:")
@@ -62,11 +64,7 @@ def show_action_center_top10(df):
             margin_alerts_display['Last 3d Margin'] = margin_alerts_display['Last 3d Margin'].apply(lambda x: f"{x:.2%}")
             st.dataframe(margin_alerts_display, use_container_width=True)
 
-    st.subheader("Action Center: Top 10 Trending Packages (3d vs Prev 3d)")
-    st.caption(f"Latest period: {last3[0].strftime('%Y-%m-%d')} to {last3[-1].strftime('%Y-%m-%d')}")
-    st.dataframe(top10_display, use_container_width=True)
-
-    # Format columns (no decimals, $ for revenue, % with sign for change)
+    # Format columns
     def fmt_money(x):
         return f"${int(round(x)):,}" if pd.notnull(x) else ""
     def fmt_pct(x):
@@ -87,7 +85,12 @@ def show_action_center_top10(df):
     st.dataframe(top10_display, use_container_width=True)
 
 def show_dropped_channels(df):
-    # Find channels with a drop >80% in publisher impressions from prev 3d to last 3d
+    required_cols = ['Date', 'Channel', 'Publisher Impressions']
+    missing = [col for col in required_cols if col not in df.columns]
+    if missing:
+        st.warning(f"Missing required columns: {', '.join(missing)}")
+        return
+
     df['Date'] = pd.to_datetime(df['Date'])
     df['Publisher Impressions'] = pd.to_numeric(df['Publisher Impressions'], errors='coerce').fillna(0)
     latest_dates = sorted(df['Date'].unique())[-6:]
@@ -97,14 +100,18 @@ def show_dropped_channels(df):
     prev_by_channel = df[df['Date'].isin(prev3)].groupby('Channel')['Publisher Impressions'].sum()
     channel_df = pd.DataFrame({'Last 3d': last_by_channel, 'Prev 3d': prev_by_channel}).fillna(0)
     channel_df['% Drop'] = np.where(channel_df['Prev 3d']==0, np.nan, 100*(channel_df['Prev 3d']-channel_df['Last 3d'])/channel_df['Prev 3d'])
-    # Only channels with at least some impressions before
     dropped = channel_df[channel_df['% Drop'] > 80]
     if not dropped.empty:
         st.error("⚠️ Critical: The following channels dropped >80% in impressions (check connectivity/settings):")
         st.dataframe(dropped.reset_index()[['Channel','Prev 3d','Last 3d','% Drop']], use_container_width=True)
 
 def show_best_worst_formats(df):
-    # Find top/bottom ad formats by revenue in last 3d
+    required_cols = ['Date', 'Ad format', 'Gross Revenue']
+    missing = [col for col in required_cols if col not in df.columns]
+    if missing:
+        st.warning(f"Missing required columns: {', '.join(missing)}")
+        return
+
     df['Date'] = pd.to_datetime(df['Date'])
     df['Gross Revenue'] = pd.to_numeric(df['Gross Revenue'], errors='coerce').fillna(0)
     latest_dates = sorted(df['Date'].unique())[-3:]
