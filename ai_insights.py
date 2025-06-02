@@ -1,3 +1,4 @@
+import pandas as pd
 import streamlit as st
 
 def show_ai_insights(df):
@@ -11,17 +12,32 @@ def show_ai_insights(df):
     latest_date = df['Date'].max()
     previous_date = df[df['Date'] < latest_date]['Date'].max()
 
-    # Get "current day" and "previous day" row (for one package—adapt as needed!)
-    # If you want to filter by specific package, add here!
-    df_current = df[df['Date'] == latest_date].iloc[0]
-    df_prev = df[df['Date'] == previous_date].iloc[0]
+    # Get "current day" and "previous day" row for the TOP revenue package
+    # Here we use the package with the largest revenue change (absolute value)
+    pivot = df.pivot_table(index=['Package'], columns='Date', values='Gross Revenue', aggfunc='sum', fill_value=0)
+    if pivot.shape[1] >= 2:
+        prev_day_col = previous_date
+        curr_day_col = latest_date
+        pivot['diff'] = pivot[curr_day_col] - pivot[prev_day_col]
+        pivot['abs_diff'] = pivot['diff'].abs()
+        top_package = pivot.sort_values('abs_diff', ascending=False).index[0]
+        df_current = df[(df['Date'] == latest_date) & (df['Package'] == top_package)].iloc[0]
+        df_prev = df[(df['Date'] == previous_date) & (df['Package'] == top_package)].iloc[0]
+    else:
+        # Fallback: just pick first
+        df_current = df[df['Date'] == latest_date].iloc[0]
+        df_prev = df[df['Date'] == previous_date].iloc[0]
+        top_package = df_current['Package']
 
     # Calculate % change
     prev_rev = df_prev['Gross Revenue']
     curr_rev = df_current['Gross Revenue']
-    growth = ((curr_rev - prev_rev) / prev_rev * 100) if prev_rev != 0 else float('inf')
+    if prev_rev != 0:
+        growth = ((curr_rev - prev_rev) / prev_rev * 100)
+    else:
+        growth = float('inf')
 
-    # Card
+    # Card display
     st.header("🤖 AI Insights: Top Revenue Changes (Biggest Movers)")
     st.markdown(
         f"""
