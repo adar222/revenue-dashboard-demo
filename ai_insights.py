@@ -22,8 +22,13 @@ def show_ai_insights(df):
 
     movers = []
     for pkg in valid_packages:
-        curr_row = df[(df['Date'] == latest_date) & (df['Package'] == pkg)].iloc[0]
-        prev_row = df[(df['Date'] == previous_date) & (df['Package'] == pkg)].iloc[0]
+        curr_df = df[(df['Date'] == latest_date) & (df['Package'] == pkg)]
+        prev_df = df[(df['Date'] == previous_date) & (df['Package'] == pkg)]
+        # Defensive: skip if either is missing
+        if curr_df.empty or prev_df.empty:
+            continue
+        curr_row = curr_df.iloc[0]
+        prev_row = prev_df.iloc[0]
         prev_rev = prev_row['Gross Revenue']
         curr_rev = curr_row['Gross Revenue']
         if prev_rev != 0:
@@ -67,6 +72,7 @@ def show_ai_insights(df):
             'Current Date': latest_date,
             'Main Driver': driver_text
         })
+
 
     # Sort and pick top/bottom 5
     movers_df = pd.DataFrame(movers)
