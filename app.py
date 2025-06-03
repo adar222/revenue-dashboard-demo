@@ -3,11 +3,29 @@ import pandas as pd
 from action_center import show_action_center_top10, show_dropped_channels, show_best_worst_formats
 from ai_qna import show_ai_qna
 from ai_insights import show_ai_insights
+from datetime import timedelta
 
 st.set_page_config(page_title="AI Revenue Action Center", layout="wide")
 st.title("📈 AI-Powered Revenue Action Center")
 
 uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx"])
+
+def colored_dot(percent):
+    # percent is change in revenue, float
+    if percent >= 10:
+        return "🟢"
+    elif percent <= -10:
+        return "🔴"
+    else:
+        return "🟡"
+
+def alert_text(margin, ivt):
+    alerts = []
+    if margin < 25:
+        alerts.append("**Low Margin**")
+    if ivt > 10:
+        alerts.append("**High IVT**")
+    return ", ".join(alerts)
 
 if uploaded_file:
     df = pd.read_excel(uploaded_file)
@@ -23,134 +41,139 @@ if uploaded_file:
         st.stop()
     # ---- SANITY CHECK END ----
 
+    # --- Prepare dates for 3-day rolling windows ---
+    df['Date'] = pd.to_datetime(df['Date'])
+    latest_day = df['Date'].max()
+    prev_window_end = latest_day - timedelta(days=3)
+    prev_window_start = latest_day - timedelta(days=5)
+    curr_window = (df['Date'] > prev_window_end)
+    prev_window = (df['Date'] >= prev_window_start) & (df['Date'] <= prev_window_end)
+
+    curr_dates = df.loc[curr_window, 'Date'].dt.strftime('%d/%m').unique()
+    prev_dates = df.loc[prev_window, 'Date'].dt.strftime('%d/%m').unique()
+    curr_dates_str = f"{curr_dates[0]}-{curr_dates[-1]}" if len(curr_dates) > 1 else f"{curr_dates[0]}"
+    prev_dates_str = f"{prev_dates[0]}-{prev_dates[-1]}" if len(prev_dates) > 1 else f"{prev_dates[0]}"
+
+    # --- Tab Layout ---
     tab1, tab2 = st.tabs(["Dashboard", "AI Insights"])
 
+    # --- Dashboard Tab ---
     with tab1:
-        st.markdown("#### 🚦 Executive Summary")
+        st.markdown("#### 🚦 Top 10 Grossing Packages: 3-Day Comparison")
 
-        ai_cols = [
-            'Date', 'Advertiser', 'Channel', 'Ad format', 'Package', 'Gross Revenue', 'eCPM', 'FillRate',
-            'Publisher Impressions', 'IVT (%)', 'Margin (%)', 'Score', 'Alert', 'Status'
+        # Aggregate revenue for each window, per package
+        grp_cols = ['Package']
+        agg_cols = {
+            'Gross Revenue': 'sum',
+            'Margin (%)': 'mean',
+            'IVT (%)': 'mean'
+        }
+        last3 = df[curr_window].groupby(grp_cols).agg(agg_cols).rename(
+            columns={
+                'Gross Revenue': 'last3_revenue',
+                'Margin (%)': 'last3_margin',
+                'IVT (%)': 'last3_ivt'
+            }
+        )
+        prev3 = df[prev_window].groupby(grp_cols).agg(agg_cols).rename(
+            columns={
+                'Gross Revenue': 'prev3_revenue',
+                'Margin (%)': 'prev3_margin',
+                'IVT (%)': 'prev3_ivt'
+            }
+        )
+
+        merged = last3.merge(prev3, left_index=True, right_index=True, how='outer').fillna(0)
+        merged['$ Change'] = merged['last3_revenue'] - merged['prev3_revenue']
+        merged['% Change'] = ((merged['last3_revenue'] - merged['prev3_revenue']) / merged['prev3_revenue'].replace(0, 1)) * 100
+
+        # Order by last 3 days revenue (top 10)
+        merged = merged.sort_values('last3_revenue', ascending=False).head(10)
+
+        # Reset index for iteration
+        merged = merged.reset_index()
+
+        # --- Show Table ---
+        # Build column headers with dates
+        col_labels = [
+            "Package",
+            f"Last 3d Revenue\n:blue[{curr_dates_str}]",
+            f"Prev 3d Revenue\n:gray[{prev_dates_str}]",
+            "$ Change",
+            "% Change",
+            f"Margin\n:blue[{curr_dates_str}]",
+            f"IVT\n:blue[{curr_dates_str}]",
+            "Alert(s)",
+            "Show More"
         ]
-        ai_cols = [col for col in ai_cols if col in df.columns]
 
-        advertisers = df['Advertiser'].dropna().unique().tolist() if 'Advertiser' in df.columns else []
-        channels = df['Channel'].dropna().unique().tolist() if 'Channel' in df.columns else []
-        formats = df['Ad format'].dropna().unique().tolist()
+        # Show formatted table with expanders per row
+        for idx, row in merged.iterrows():
+            pkg = row['Package']
+            last3_rev = row['last3_revenue']
+            prev3_rev = row['prev3_revenue']
+            dollar_change = row['$ Change']
+            pct_change = row['% Change']
+            last3_margin = row['last3_margin']
+            last3_ivt = row['last3_ivt']
 
-        advertisers = ["(All)"] + advertisers if advertisers else ["(All)"]
-        channels = ["(All)"] + channels if channels else ["(All)"]
-        formats = ["(All)"] + formats
+            dot = colored_dot(pct_change)
+            alerts = alert_text(last3_margin, last3_ivt)
 
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            advertiser = st.selectbox("Advertiser", options=advertisers, index=0)
-        with col2:
-            channel = st.selectbox("Channel", options=channels, index=0)
-        with col3:
-            ad_format = st.selectbox("Ad Format", options=formats, index=0)
+            # Display a summary row (like a table)
+            cols = st.columns([2.8, 2.3, 2.3, 1.5, 1.5, 1.5, 1.2, 2, 1.5])
+            cols[0].markdown(f"**{pkg}**")
+            cols[1].markdown(f"${last3_rev:,.0f}")
+            cols[2].markdown(f"${prev3_rev:,.0f}")
+            cols[3].markdown(f"{'+' if dollar_change >=0 else ''}${dollar_change:,.0f}")
+            cols[4].markdown(f"{'+' if pct_change >=0 else ''}{pct_change:.0f}%")
+            cols[5].markdown(f"{int(round(last3_margin))}%")
+            cols[6].markdown(f"{int(round(last3_ivt))}%")
+            alert_str = f"{dot}"
+            if alerts:
+                alert_str += f" {alerts}"
+            cols[7].markdown(alert_str)
+            with cols[8]:
+                with st.expander("Show More", expanded=False):
+                    # Breakdown by Channel and Date for this package (last 6 days)
+                    recent = df[(df['Package'] == pkg) & (df['Date'] >= prev_window_start)]
+                    if not recent.empty:
+                        breakdown = recent.groupby(['Channel', 'Date']).agg({
+                            'Gross Revenue': 'sum',
+                            'eCPM': 'mean',
+                            'IVT (%)': 'mean',
+                            'Margin (%)': 'mean'
+                        }).reset_index()
+                        # Formatting
+                        breakdown['Gross Revenue'] = breakdown['Gross Revenue'].apply(lambda x: f"${x:,.0f}")
+                        breakdown['Date'] = breakdown['Date'].dt.strftime('%d/%m')
+                        breakdown['eCPM'] = breakdown['eCPM'].apply(lambda x: f"{x:.2f}")
+                        breakdown['IVT (%)'] = breakdown['IVT (%)'].apply(lambda x: f"{int(round(x))}%")
+                        breakdown['Margin (%)'] = breakdown['Margin (%)'].apply(lambda x: f"{int(round(x))}%")
+                        st.dataframe(breakdown, use_container_width=True, height=230)
+                    else:
+                        st.write("No data available for this package in last 6 days.")
 
-        filtered = df.copy()
-        if advertiser != "(All)" and 'Advertiser' in df.columns:
-            filtered = filtered[filtered['Advertiser'] == advertiser]
-        if channel != "(All)" and 'Channel' in df.columns:
-            filtered = filtered[filtered['Channel'] == channel]
-        if ad_format != "(All)":
-            filtered = filtered[filtered['Ad format'] == ad_format]
+            st.markdown("---")
 
-        # --- KPIs (formatted)
-        c1, c2, c3, c4, c5 = st.columns(5)
-        c1.metric("Rows", f"{len(filtered):,}")
-        if "Status" in filtered.columns:
-            c2.metric("Critical", f"{(filtered['Status'] == 'Critical').sum():,}")
-            c3.metric("Needs Review", f"{(filtered['Status'] == 'Needs Review').sum():,}")
-        if "IVT (%)" in filtered.columns:
-            ivt = int(round(filtered["IVT (%)"].mean()))
-            c4.metric("Avg IVT (%)", f"{ivt}%")
-        if "Margin (%)" in filtered.columns:
-            margin = int(round(filtered["Margin (%)"].mean()))
-            c5.metric("Avg Margin (%)", f"{margin}%")
-
-        st.divider()
-
-        # --- Top 5 Risky Packages (formatted)
-        st.markdown("##### 🚨 Top 5 Risky Packages")
-        if "Status" in filtered.columns:
-            risky = filtered[filtered['Status'].isin(['Critical', 'Needs Review'])].copy()
-            if not risky.empty:
-                risky = risky.sort_values(
-                    by=["Status", "Score", "Gross Revenue"], 
-                    ascending=[True, True, False]
-                ).head(5)
-                show_cols = [c for c in ['Package', 'Gross Revenue', 'IVT (%)', 'Margin (%)', 'Score', 'Status', 'Alert'] if c in risky.columns]
-                display = risky[show_cols].copy()
-
-                if 'Gross Revenue' in display.columns:
-                    display['Gross Revenue'] = display['Gross Revenue'].apply(lambda x: f"{x:,.0f}")
-                if 'IVT (%)' in display.columns:
-                    display['IVT (%)'] = display['IVT (%)'].apply(lambda x: f"{int(round(x))}%")
-                if 'Margin (%)' in display.columns:
-                    display['Margin (%)'] = display['Margin (%)'].apply(lambda x: f"{int(round(x))}%")
-                if 'Score' in display.columns:
-                    display['Score'] = display['Score'].apply(lambda x: f"{int(x)}")
-
-                st.dataframe(display, use_container_width=True, height=250)
-            else:
-                st.info("No risky packages found for this selection.")
-
-        st.divider()
-
-        # --- AI Highlights (executive-style summary)
-        st.markdown("##### 🤖 AI Highlights")
-        highlights = []
-        if "IVT (%)" in filtered.columns:
-            worst_ivt = filtered.sort_values("IVT (%)", ascending=False).head(1)
-            if not worst_ivt.empty:
-                highlights.append(f"Highest IVT: **{worst_ivt['Package'].values[0]}** at **{int(round(worst_ivt['IVT (%)'].values[0]))}%**")
-        if "Margin (%)" in filtered.columns:
-            worst_margin = filtered.sort_values("Margin (%)", ascending=True).head(1)
-            if not worst_margin.empty:
-                highlights.append(f"Lowest Margin: **{worst_margin['Package'].values[0]}** at **{int(round(worst_margin['Margin (%)'].values[0]))}%**")
-        if "Gross Revenue" in filtered.columns:
-            top_rev = filtered.sort_values("Gross Revenue", ascending=False).head(1)
-            if not top_rev.empty:
-                highlights.append(f"Top Revenue: **{top_rev['Package'].values[0]}** with **${int(round(top_rev['Gross Revenue'].values[0])):,}**")
-        for h in highlights:
-            st.write(f"- {h}")
-
-        st.divider()
-
-        # Optional: "Show all data table" button
-        if st.button("Show all data table"):
-            formatted = filtered[ai_cols].copy()
-            if 'IVT (%)' in formatted.columns:
-                formatted['IVT (%)'] = formatted['IVT (%)'].apply(lambda x: f"{int(round(x))}%")
-            if 'Margin (%)' in formatted.columns:
-                formatted['Margin (%)'] = formatted['Margin (%)'].apply(lambda x: f"{int(round(x))}%")
-            if 'eCPM' in formatted.columns:
-                formatted['eCPM'] = formatted['eCPM'].apply(lambda x: f"{x:,.2f}")
-            if 'FillRate' in formatted.columns:
-                formatted['FillRate'] = formatted['FillRate'].apply(lambda x: f"{int(round(x*100))}%")
-            for col in ['Gross Revenue', 'Publisher Impressions']:
-                if col in formatted.columns:
-                    formatted[col] = formatted[col].apply(lambda x: f"{x:,.0f}")
-            st.dataframe(formatted, use_container_width=True, height=500)
-
-        # --- You can keep or remove these lines if you want action_center sections too ---
-        # show_dropped_channels(filtered)
-        # show_best_worst_formats(filtered)
-        # show_action_center_top10(filtered)
-
-        st.markdown("---")
+        # ----- AI Chat bot below the summary table -----
         st.markdown("## 💬 Ask AI About Your Data (Optional)")
-        api_key = st.text_input("Paste your OpenAI API key to enable AI analysis (will not be saved):", type="password")
+        api_key = st.text_input("Paste your OpenAI API key to enable AI analysis (will not be saved):", type="password", key="api_key_tab1")
         if api_key:
-            show_ai_qna(filtered, api_key)
+            show_ai_qna(df, api_key)
         else:
             st.info("Enter your OpenAI API key above to enable AI Q&A.")
 
+    # --- AI Insights Tab ---
     with tab2:
         show_ai_insights(df)
+        st.markdown("---")
+        st.markdown("## 💬 Ask AI About Your Data (Optional)")
+        api_key2 = st.text_input("Paste your OpenAI API key to enable AI analysis (will not be saved):", type="password", key="api_key_tab2")
+        if api_key2:
+            show_ai_qna(df, api_key2)
+        else:
+            st.info("Enter your OpenAI API key above to enable AI Q&A.")
 
 else:
     st.info("Please upload your Excel file to see all action items and enable filtering.")
