@@ -1,6 +1,9 @@
 import pandas as pd
 import streamlit as st
 
+def comma(x):
+    return f"{int(x):,}"
+
 def show_ai_insights(df):
     df['Date'] = pd.to_datetime(df['Date'])
     df = df.sort_values('Date')
@@ -51,15 +54,15 @@ def show_ai_insights(df):
         movers.append({
             'Package': pkg,
             'Ad format': curr_row['Ad format'],
-            'Previous Revenue': int(round(prev_rev)),
-            'Current Revenue': int(round(curr_rev)),
+            'Previous Revenue': comma(prev_rev),
+            'Current Revenue': comma(curr_rev),
             'Change (%)': pct_change,
-            'Previous eCPM': int(round(prev_ecpm)),
-            'Current eCPM': int(round(curr_ecpm)),
+            'Previous eCPM': comma(prev_ecpm),
+            'Current eCPM': comma(curr_ecpm),
             'Previous FillRate': int(round(prev_fill * 100)),
             'Current FillRate': int(round(curr_fill * 100)),
-            'Previous Imps': int(round(prev_imp)),
-            'Current Imps': int(round(curr_imp)),
+            'Previous Imps': comma(prev_imp),
+            'Current Imps': comma(curr_imp),
             'Previous Date': previous_date,
             'Current Date': latest_date,
             'Main Driver': driver_text
@@ -70,31 +73,16 @@ def show_ai_insights(df):
     top5 = movers_df.sort_values('Change (%)', ascending=False).head(5)
     bottom5 = movers_df.sort_values('Change (%)', ascending=True).head(5)
 
-    # --- Executive Summary ---
-    total_prev = int(round(df[df['Date'] == previous_date]['Gross Revenue'].sum()))
-    total_curr = int(round(df[df['Date'] == latest_date]['Gross Revenue'].sum()))
-    total_pct = int(round((total_curr - total_prev) / total_prev * 100)) if total_prev else 0
-
-    main_gainer = top5.iloc[0]
-    main_loser = bottom5.iloc[0]
-
-    st.subheader("Summary")
-    st.markdown(
-        f"Revenue {'up' if total_pct>=0 else 'down'} {abs(total_pct)}%. "
-        f"{main_gainer['Package']} (+{main_gainer['Change (%)']}%) and {main_loser['Package']} ({main_loser['Change (%)']}%) drove the main change. "
-        f"{main_gainer['Package']} rose on {main_gainer['Main Driver']}; {main_loser['Package']} dropped on {main_loser['Main Driver']}."
-    )
-
     # --- Top 5 Movers Up ---
     st.subheader("Top 5 Movers Up")
     for _, row in top5.iterrows():
         st.markdown(
             f"⬆️ **{row['Package']} ({row['Ad format']})**  \n"
-            f"{row['Current Date'].strftime('%Y-%m-%d')}: Revenue +{row['Change (%)']}% (from ${row['Previous Revenue']} to ${row['Current Revenue']})  \n"
+            f"{row['Current Date'].strftime('%Y-%m-%d')}: Revenue +{row['Change (%)']}% (from {row['Previous Revenue']} to {row['Current Revenue']})  \n"
             f"**Main driver:** {row['Main Driver']}"
         )
         st.markdown(
-            f"eCPM: ${row['Previous eCPM']} ➡️ ${row['Current eCPM']}  \n"
+            f"eCPM: {row['Previous eCPM']} ➡️ {row['Current eCPM']}  \n"
             f"Fill Rate: {row['Previous FillRate']}% ➡️ {row['Current FillRate']}%  \n"
             f"Publisher Imps: {row['Previous Imps']} ➡️ {row['Current Imps']}"
         )
@@ -105,11 +93,11 @@ def show_ai_insights(df):
     for _, row in bottom5.iterrows():
         st.markdown(
             f"⬇️ **{row['Package']} ({row['Ad format']})**  \n"
-            f"{row['Current Date'].strftime('%Y-%m-%d')}: Revenue {row['Change (%)']}% (from ${row['Previous Revenue']} to ${row['Current Revenue']})  \n"
+            f"{row['Current Date'].strftime('%Y-%m-%d')}: Revenue {row['Change (%)']}% (from {row['Previous Revenue']} to {row['Current Revenue']})  \n"
             f"**Main driver:** {row['Main Driver']}"
         )
         st.markdown(
-            f"eCPM: ${row['Previous eCPM']} ➡️ ${row['Current eCPM']}  \n"
+            f"eCPM: {row['Previous eCPM']} ➡️ {row['Current eCPM']}  \n"
             f"Fill Rate: {row['Previous FillRate']}% ➡️ {row['Current FillRate']}%  \n"
             f"Publisher Imps: {row['Previous Imps']} ➡️ {row['Current Imps']}"
         )
@@ -125,7 +113,7 @@ def show_ai_insights(df):
     for pkg in all_top_latest - all_top_prev:
         new_top10.append(pkg)
     for _, row in movers_df.iterrows():
-        if row['Current FillRate'] > 90 and row['Current eCPM'] < 2:
+        if row['Current FillRate'] > 90 and int(row['Current eCPM'].replace(',', '')) < 2:
             opportunity.append(row['Package'])
 
     st.subheader("Actionable")
