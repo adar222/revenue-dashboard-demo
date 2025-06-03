@@ -1,168 +1,249 @@
 import streamlit as st
 import pandas as pd
-from datetime import timedelta
-from ai_qna import show_ai_qna
-from ai_insights import show_ai_insights
+import numpy as np
 
-st.set_page_config(page_title="AI Revenue Action Center", layout="wide")
+# --- Utility formatting functions ---
+def comma(x):
+    try:
+        return f"{int(round(float(x))):,}"
+    except:
+        return x
+
+def pct(old, new):
+    try:
+        if old == 0:
+            return 9999 if new > 0 else 0
+        return int(round((new - old) / old * 100))
+    except:
+        return 0
+
+def format_percent(val, decimals=0):
+    try:
+        if np.isnan(val):
+            return ''
+        return f"{val:.{decimals}f}%"
+    except:
+        return val
+
+def icon_dot(pct_change):
+    if pct_change > 10:
+        return '<span style="color:#22c55e;font-size:1.3em;">●</span>'   # green
+    elif pct_change < -10:
+        return '<span style="color:#ef4444;font-size:1.3em;">●</span>'  # red
+    else:
+        return '<span style="color:#eab308;font-size:1.3em;">●</span>'  # yellow
+
+def margin_icon(margin):
+    if margin >= 30:
+        return '🟢'
+    elif margin >= 20:
+        return '🟡'
+    else:
+        return '🔴'
+
+def ivt_icon(ivt):
+    if ivt >= 10:
+        return '⚠️'
+    else:
+        return ''
+
+def high_ivt_alert(ivt):
+    if ivt >= 10:
+        return f"High IVT {ivt_icon(ivt)}"
+    else:
+        return ''
+
+# --- Streamlit App ---
+st.set_page_config("AI-Powered Revenue Action Center", layout="wide")
 st.title("📈 AI-Powered Revenue Action Center")
 
 uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx"])
-
-def colored_dot(percent):
-    if percent >= 10:
-        return "🟢"
-    elif percent <= -10:
-        return "🔴"
-    else:
-        return "🟡"
-
-def comma(x):
-    try:
-        return f"{int(round(x)):,}"
-    except:
-        return x
-
-def two_digits(x):
-    try:
-        return f"{x:.2f}"
-    except:
-        return x
-
-def whole_percent(x):
-    try:
-        return f"{int(round(x))}%"
-    except:
-        return x
-
-def alert_text(margin, ivt):
-    alerts = []
-    if margin < 25:
-        alerts.append("Low Margin ❗")
-    if ivt > 10:
-        alerts.append("High IVT ⚠️")
-    return ", ".join(alerts)
-
 if uploaded_file:
     df = pd.read_excel(uploaded_file)
-    st.markdown("#### 📊 Top 10 Grossing Packages: 3-Day Comparison")
 
-    # Data cleanup
-    df['Date'] = pd.to_datetime(df['Date'])
-    df = df.sort_values('Date')
-    df['Gross Revenue'] = pd.to_numeric(df['Gross Revenue'], errors='coerce').fillna(0)
-    df['eCPM'] = pd.to_numeric(df['eCPM'], errors='coerce').fillna(0)
-    df['FillRate'] = pd.to_numeric(df['FillRate'], errors='coerce').fillna(0)
-    df['IVT'] = pd.to_numeric(df['IVT'], errors='coerce').fillna(0)
-    df['Margin'] = pd.to_numeric(df.get('Margin', (df['Gross Revenue']-0)/df['Gross Revenue']*100), errors='coerce').fillna(0)
+    # Standardize column names (fix leading/trailing spaces)
+    df.columns = [c.strip() for c in df.columns]
 
-    last_day = df['Date'].max()
-    prev_end = last_day - timedelta(days=3)
-    prev_start = prev_end - timedelta(days=2)
+    # Make sure Date is datetime
+    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
 
-    # Last 3d and previous 3d
-    mask_last3d = (df['Date'] > prev_end) & (df['Date'] <= last_day)
-    mask_prev3d = (df['Date'] > prev_start - timedelta(days=1)) & (df['Date'] <= prev_end)
-    df_last3d = df[mask_last3d]
-    df_prev3d = df[mask_prev3d]
+    # Fix IVT/Margin column names for code
+    if 'IVT (%)' in df.columns:
+        df['IVT'] = pd.to_numeric(df['IVT (%)'], errors='coerce').fillna(0)
+    else:
+        df['IVT'] = 0
+    if 'Margin (%)' in df.columns:
+        df['Margin'] = pd.to_numeric(df['Margin (%)'], errors='coerce').fillna(0)
+    else:
+        df['Margin'] = 0
 
-    # Aggregated by package
-    agg_last = df_last3d.groupby('Package').agg({
-        'Gross Revenue': 'sum',
-        'Margin': 'mean',
-        'IVT': 'mean'
-    }).rename(columns={
-        'Gross Revenue': 'Last 3d Revenue',
-        'Margin': 'Margin 3d',
-        'IVT': 'IVT 3d'
-    })
-    agg_prev = df_prev3d.groupby('Package').agg({
-        'Gross Revenue': 'sum'
-    }).rename(columns={'Gross Revenue': 'Prev 3d Revenue'})
+    # --- Find latest 6 unique dates for 3+3 split ---
+    date_list = sorted(df['Date'].dropna().unique())
+    if len(date_list) < 6:
+        st.error("Not enough days in the file. Please upload at least 6 days of data.")
+        st.stop()
+    last_3 = date_list[-3:]
+    prev_3 = date_list[-6:-3]
 
-    merged = agg_last.join(agg_prev, how='left')
-    merged['Prev 3d Revenue'] = merged['Prev 3d Revenue'].fillna(0)
-    merged['$ Change'] = merged['Last 3d Revenue'] - merged['Prev 3d Revenue']
-    merged['% Change'] = merged.apply(lambda row: (row['$ Change'] / row['Prev 3d Revenue'] * 100) if row['Prev 3d Revenue'] > 0 else 9999, axis=1)
-    merged['Alert(s)'] = merged.apply(lambda row: alert_text(row['Margin 3d'], row['IVT 3d']), axis=1)
-    merged['Dot'] = merged['% Change'].apply(colored_dot)
-    merged = merged.sort_values('Last 3d Revenue', ascending=False).head(10).reset_index()
+    # --- Compute 3d Revenue & Stats per Package ---
+    def agg3d(df, days):
+        group = df[df['Date'].isin(days)].groupby('Package').agg(
+            Revenue=('Gross Revenue', 'sum'),
+            Margin=('Margin', 'mean'),
+            IVT=('IVT', 'mean')
+        ).reset_index()
+        return group
 
-    # Main Table header
-    st.markdown("""
-    <style>
-    .freeze-header th { position: sticky; top: 0; background-color: #fff; z-index: 5;}
-    </style>
-    """, unsafe_allow_html=True)
-    st.markdown('<div style="overflow-x:auto;">', unsafe_allow_html=True)
+    group_last = agg3d(df, last_3)
+    group_prev = agg3d(df, prev_3)
 
-    # Show table header (frozen via CSS)
-    st.write(" ")
-    header_row = [
-        "Package",
-        f"Last 3d Revenue {last_day.strftime('%d/%m')}",
-        f"Prev 3d Revenue {(prev_end).strftime('%d/%m')}",
+    # Merge for comparison
+    merged = pd.merge(group_last, group_prev, on='Package', suffixes=('_last3', '_prev3'), how='outer').fillna(0)
+    merged['$ Change'] = merged['Revenue_last3'] - merged['Revenue_prev3']
+    merged['% Change'] = merged.apply(lambda r: pct(r['Revenue_prev3'], r['Revenue_last3']), axis=1)
+
+    # Add IVT, Margin icons and alerts
+    merged['IVT_alert'] = merged['IVT_last3'].apply(lambda x: high_ivt_alert(x))
+    merged['dot'] = merged['% Change'].apply(icon_dot)
+    merged['margin_icon'] = merged['Margin_last3'].apply(margin_icon)
+    merged['ivt_icon'] = merged['IVT_last3'].apply(ivt_icon)
+
+    # --- Select top 10 by last 3d revenue ---
+    merged = merged.sort_values("Revenue_last3", ascending=False).head(10).reset_index(drop=True)
+
+    # --- Render Main Table ---
+    st.markdown("### 📊 Top 10 Grossing Packages: 3-Day Comparison")
+    colnames = [
+        "Package", 
+        f"Last 3d Revenue {pd.to_datetime(last_3[0]).strftime('%d/%m')}-{pd.to_datetime(last_3[-1]).strftime('%d/%m')}",
+        f"Prev 3d Revenue {pd.to_datetime(prev_3[0]).strftime('%d/%m')}-{pd.to_datetime(prev_3[-1]).strftime('%d/%m')}",
         "$ Change", "% Change", 
-        f"Margin {last_day.strftime('%d/%m')}",
-        f"IVT {last_day.strftime('%d/%m')}",
+        f"Margin {pd.to_datetime(last_3[0]).strftime('%d/%m')}-{pd.to_datetime(last_3[-1]).strftime('%d/%m')}",
+        f"IVT {pd.to_datetime(last_3[0]).strftime('%d/%m')}-{pd.to_datetime(last_3[-1]).strftime('%d/%m')}",
         "Alert(s)"
     ]
-    table_data = []
-    for idx, row in merged.iterrows():
-        pkg = row['Package']
-        alerts = row['Alert(s)']
-        dot = row['Dot']
-        table_data.append([
-            f"{pkg} {dot}",
-            f"${comma(row['Last 3d Revenue'])}",
-            f"${comma(row['Prev 3d Revenue'])}",
-            f"${comma(row['$ Change'])}",
-            f"{int(row['% Change']) if abs(row['% Change']) != 9999 else '--'}%",
-            whole_percent(row['Margin 3d']),
-            whole_percent(row['IVT 3d']),
-            alerts
+    # Build data for display
+    rows = []
+    for idx, r in merged.iterrows():
+        alerts = []
+        if r['IVT_alert']:
+            alerts.append(r['IVT_alert'])
+        # Add more alerts if needed
+        alert_str = " ".join(alerts)
+        rows.append([
+            f"🧩 {r['Package']}",
+            f"${comma(r['Revenue_last3'])}",
+            f"${comma(r['Revenue_prev3'])}",
+            f"${comma(r['$ Change'])}",
+            f"{r['% Change']}%",
+            f"{int(round(r['Margin_last3']))}% {r['margin_icon']}",
+            f"{int(round(r['IVT_last3']))}% {r['ivt_icon']}",
+            f"{r['dot']} {alert_str}",
         ])
+    # Display as HTML for sticky header
+    st.markdown(
+        f"""
+        <style>
+            .scroll-table-wrapper {{
+                overflow-x: auto;
+                max-width: 100%;
+                margin-bottom: 1.5em;
+            }}
+            table.scroll-table {{
+                border-collapse: collapse;
+                width: 100%;
+                min-width: 950px;
+            }}
+            table.scroll-table th, table.scroll-table td {{
+                padding: 8px 10px;
+                text-align: left;
+                border-bottom: 1px solid #eee;
+                white-space: nowrap;
+            }}
+            table.scroll-table th {{
+                position: sticky;
+                top: 0;
+                background: #f7fafc;
+                z-index: 2;
+            }}
+        </style>
+        <div class="scroll-table-wrapper">
+        <table class="scroll-table">
+            <thead>
+                <tr>
+                    {''.join([f'<th>{c}</th>' for c in colnames])}
+                </tr>
+            </thead>
+            <tbody>
+                {''.join([
+                    '<tr>' + ''.join([f'<td>{cell}</td>' for cell in row]) + '</tr>'
+                    for row in rows
+                ])}
+            </tbody>
+        </table>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-    st.table(pd.DataFrame(table_data, columns=header_row))
-
-    st.markdown('</div>', unsafe_allow_html=True)
-
+    # --- Expandable Section: Channel & Date breakdown for each package ---
     st.markdown("### Show Details by Channel & Date")
-
-    for idx, row in merged.iterrows():
-        pkg = row['Package']
-        with st.expander(f"Show More: {pkg}", expanded=False):
-            # Show breakdown by channel and date
-            subset = df[df['Package'] == pkg]
-            if not subset.empty:
-                detail_table = subset.groupby(['Channel', 'Date']).agg({
-                    'Gross Revenue': 'sum',
-                    'eCPM': 'mean',
-                    'FillRate': 'mean',
-                    'IVT': 'mean',
-                    'Margin': 'mean'
-                }).reset_index().sort_values('Gross Revenue', ascending=False)
-                detail_table['Date'] = detail_table['Date'].dt.strftime('%d/%m')
-                detail_table['Gross Revenue'] = detail_table['Gross Revenue'].apply(lambda x: f"${comma(x)}")
-                detail_table['eCPM'] = detail_table['eCPM'].apply(two_digits)
-                detail_table['FillRate'] = detail_table['FillRate'].apply(lambda x: f"{int(round(x))}%")
-                detail_table['IVT'] = detail_table['IVT'].apply(lambda x: f"{int(round(x))}%")
-                detail_table['Margin'] = detail_table['Margin'].apply(whole_percent)
-                st.dataframe(detail_table, use_container_width=True)
+    for idx, r in merged.iterrows():
+        pkg = r['Package']
+        with st.expander(f"Show More: {pkg}"):
+            # Show breakdown by Channel and Date (sorted by revenue, descending)
+            data = df[df['Package'] == pkg]
+            # Only last 6 days
+            data = data[data['Date'].isin(prev_3 + last_3)]
+            # Group by Channel & Date
+            breakdown = data.groupby(['Channel', 'Date']).agg(
+                Revenue=('Gross Revenue', 'sum'),
+                Margin=('Margin', 'mean'),
+                IVT=('IVT', 'mean'),
+                Impressions=('Publisher Impressions', 'sum'),
+                eCPM=('eCPM', 'mean'),
+                FillRate=('FillRate', 'mean')
+            ).reset_index()
+            breakdown = breakdown.sort_values(['Revenue'], ascending=False)
+            if breakdown.empty:
+                st.info("No breakdown data available.")
             else:
-                st.info("No channel/date data for this package.")
+                st.markdown(
+                    """
+                    <style>
+                        table.bd {border-collapse: collapse;width:100%;min-width:680px;}
+                        table.bd th, table.bd td {padding: 5px 9px; text-align: left; border-bottom: 1px solid #f0f0f0;}
+                        table.bd th {background: #f7fafc;}
+                    </style>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                st.markdown(
+                    "<table class='bd'>"
+                    "<thead><tr>"
+                    "<th>Channel</th><th>Date</th><th>Revenue</th><th>Impr.</th><th>eCPM</th><th>Fill Rate</th><th>Margin</th><th>IVT</th>"
+                    "</tr></thead><tbody>" +
+                    "".join([
+                        f"<tr>"
+                        f"<td>{row.Channel}</td>"
+                        f"<td>{row.Date.strftime('%d/%m')}</td>"
+                        f"<td>${comma(row.Revenue)}</td>"
+                        f"<td>{comma(row.Impressions)}</td>"
+                        f"<td>{row.eCPM:.2f}</td>"
+                        f"<td>{int(round(row.FillRate * 100))}%</td>"
+                        f"<td>{int(round(row.Margin))}% {margin_icon(row.Margin)}</td>"
+                        f"<td>{int(round(row.IVT))}% {ivt_icon(row.IVT)}</td>"
+                        f"</tr>"
+                        for i, row in breakdown.iterrows()
+                    ])
+                    + "</tbody></table>",
+                    unsafe_allow_html=True,
+                )
 
-    # AI Q&A
-    st.markdown("## 💬 Ask AI About Your Data (Optional)")
-    api_key = st.text_input("Paste your OpenAI API key to enable AI analysis (will not be saved):", type="password")
-    if api_key:
-        show_ai_qna(df, api_key)
-    else:
-        st.info("Enter your OpenAI API key above to enable AI Q&A.")
-
-    # Tab for AI Insights
-    st.markdown("---")
-    st.markdown("### See also: AI Insights (top navigation)")
+    # --- AI Chatbot Widget (Optional) ---
+    st.markdown("### 💬 Ask AI About Your Data (Optional)")
+    st.info("Paste your OpenAI API key to enable AI analysis (will not be saved).")
+    api_key = st.text_input("Enter your OpenAI Key above to enable AI Q&A.", type="password")
 
 else:
-    st.info("Please upload your Excel file to see all action items and enable filtering.")
+    st.info("Upload an Excel file to start.")
