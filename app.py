@@ -13,6 +13,17 @@ uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx"])
 if uploaded_file:
     df = pd.read_excel(uploaded_file)
 
+    # ---- SANITY CHECK START ----
+    required_columns = [
+        'Date', 'Package', 'Gross Revenue', 'eCPM', 'FillRate',
+        'Publisher Impressions', 'Ad format'
+    ]
+    missing = [col for col in required_columns if col not in df.columns]
+    if missing:
+        st.error(f"ERROR: The following required columns are missing from your Excel: {', '.join(missing)}")
+        st.stop()  # Don't continue if critical columns are missing
+    # ---- SANITY CHECK END ----
+
     # --- NEW: Tabs layout ---
     tab1, tab2 = st.tabs(["Dashboard", "AI Insights"])
 
@@ -21,12 +32,12 @@ if uploaded_file:
         st.markdown("#### Data Preview (first 5 rows)")
         st.dataframe(df.head())
 
-        advertisers = df['Advertiser'].dropna().unique().tolist()
-        channels = df['Channel'].dropna().unique().tolist()
+        advertisers = df['Advertiser'].dropna().unique().tolist() if 'Advertiser' in df.columns else []
+        channels = df['Channel'].dropna().unique().tolist() if 'Channel' in df.columns else []
         formats = df['Ad format'].dropna().unique().tolist()
 
-        advertisers = ["(All)"] + advertisers
-        channels = ["(All)"] + channels
+        advertisers = ["(All)"] + advertisers if advertisers else ["(All)"]
+        channels = ["(All)"] + channels if channels else ["(All)"]
         formats = ["(All)"] + formats
 
         col1, col2, col3 = st.columns(3)
@@ -38,9 +49,9 @@ if uploaded_file:
             ad_format = st.selectbox("Ad Format", options=formats, index=0)
 
         filtered = df.copy()
-        if advertiser != "(All)":
+        if advertiser != "(All)" and 'Advertiser' in df.columns:
             filtered = filtered[filtered['Advertiser'] == advertiser]
-        if channel != "(All)":
+        if channel != "(All)" and 'Channel' in df.columns:
             filtered = filtered[filtered['Channel'] == channel]
         if ad_format != "(All)":
             filtered = filtered[filtered['Ad format'] == ad_format]
