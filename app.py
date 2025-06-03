@@ -18,6 +18,22 @@ def comma(x):
     except:
         return x
 
+def trend_dot(rev_pct):
+    if rev_pct > 10:
+        return "🟢"
+    elif rev_pct < -10:
+        return "🔴"
+    else:
+        return "🟡"
+
+def color_pct(val):
+    if val > 10:
+        return f"<span style='color: #228B22; font-weight: bold;'>{val}%</span>"  # green
+    elif val < -10:
+        return f"<span style='color: #e74c3c; font-weight: bold;'>{val}%</span>"  # red
+    else:
+        return f"<span style='color: #e1bc29; font-weight: bold;'>{val}%</span>"  # yellow
+
 st.set_page_config(page_title="AI-Powered Revenue Action Center", layout="wide")
 
 st.markdown("# 📈 AI-Powered Revenue Action Center")
@@ -78,7 +94,19 @@ if uploaded_file:
 
         top10 = df_last.groupby('Package')['Gross Revenue'].sum().sort_values(ascending=False).head(10).index.tolist()
 
-        # Build summary table
+        # Table header
+        st.markdown(
+            """
+            <style>
+            th, td { padding: 4px 8px !important; }
+            .expand-btn { background:#eee;border:none;padding:2px 10px;border-radius:6px;margin-left:10px; }
+            .frozen-header thead th { position: sticky; top: 0; background: #fafbfc; z-index: 1; }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        # Build summary table data
         summary = []
         for pkg in top10:
             last_rev = df_last[df_last['Package'] == pkg]['Gross Revenue'].sum()
@@ -95,42 +123,46 @@ if uploaded_file:
                 "Last 3d Revenue": f"${comma(last_rev)}",
                 "Prev 3d Revenue": f"${comma(prev_rev)}",
                 "$ Change": f"${comma(rev_diff)}",
-                "% Change": f"{rev_pct}%",
+                "% Change": rev_pct,
                 "Margin": f"{margin:.0f}%",
                 "IVT": f"{ivt:.0f}%",
-                "Alert": alert
+                "Alert": alert,
+                "Dot": trend_dot(rev_pct),
             })
 
-        # Table header
-        st.markdown(
-            """
-            <style>
-            th, td { padding: 4px 8px !important; }
-            .expand-btn { background:#eee;border:none;padding:2px 10px;border-radius:6px;margin-left:10px; }
-            </style>
-            """,
-            unsafe_allow_html=True,
-        )
-        cols = st.columns([2,1,1,1,1,1,1,1,1])
-        headers = ["Package", "Last 3d Revenue", "Prev 3d Revenue", "$ Change", "% Change", "Margin", "IVT", "Alert(s)", ""]
+        # Custom table with icons/colors
+        headers = ["", "Package", "Last 3d Revenue", "Prev 3d Revenue", "$ Change", "% Change", "Margin", "IVT", "Alert(s)", ""]
+        cols = st.columns([0.5,2,1,1,1,1,1,1,1,1])
         for i, h in enumerate(headers):
-            cols[i].markdown(f"**{h}**")
+            if h == "% Change":
+                cols[i].markdown(f"<b>{h}</b>", unsafe_allow_html=True)
+            else:
+                cols[i].markdown(f"**{h}**")
 
-        # Per row: show summary and a Show More button
         for i, row in enumerate(summary):
-            cols = st.columns([2,1,1,1,1,1,1,1,1])
-            for j, key in enumerate(["Package", "Last 3d Revenue", "Prev 3d Revenue", "$ Change", "% Change", "Margin", "IVT", "Alert"]):
-                val = row[key] if key in row else ""
-                cols[j].write(val)
-            expand_label = f"Show More ▾"
-            show = cols[8].button(expand_label, key=f"expand_{i}")
+            cols = st.columns([0.5,2,1,1,1,1,1,1,1,1])
+            # Dot icon
+            cols[0].markdown(row["Dot"])
+            # Package
+            cols[1].markdown(f"📱 <b>{row['Package']}</b>", unsafe_allow_html=True)
+            # Revenue columns
+            cols[2].markdown(row["Last 3d Revenue"])
+            cols[3].markdown(row["Prev 3d Revenue"])
+            cols[4].markdown(row["$ Change"])
+            # % Change with color
+            cols[5].markdown(color_pct(row["% Change"]), unsafe_allow_html=True)
+            # Margin/IVT/Alert
+            cols[6].markdown(row["Margin"])
+            cols[7].markdown(row["IVT"])
+            cols[8].markdown(row["Alert"])
+            # Show more
+            show = cols[9].button("Show More", key=f"expand_{i}")
             if show:
                 st.markdown(f"<b>Details for {row['Package']} (by Channel & Date):</b>", unsafe_allow_html=True)
                 details = df[df['Package'] == row['Package']]
                 details = details.sort_values(['Date','Channel'])
                 det_table = details[['Date','Channel','Ad format','Gross Revenue','eCPM','FillRate','IVT (%)','Margin']].copy()
                 det_table['Date'] = det_table['Date'].dt.strftime("%d/%m")
-                # Format numbers
                 det_table['Gross Revenue'] = det_table['Gross Revenue'].apply(comma)
                 det_table['eCPM'] = det_table['eCPM'].apply(lambda x: f"{x:.2f}")
                 det_table['FillRate'] = det_table['FillRate'].apply(lambda x: f"{x:.0f}%")
