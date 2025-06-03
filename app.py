@@ -5,7 +5,6 @@ from ai_qna import show_ai_qna
 from ai_insights import show_ai_insights  # Make sure this is imported!
 
 st.set_page_config(page_title="AI Revenue Action Center", layout="wide")
-
 st.title("📈 AI-Powered Revenue Action Center")
 
 uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx"])
@@ -29,8 +28,15 @@ if uploaded_file:
 
     # ---- Dashboard tab ----
     with tab1:
-        st.markdown("#### Data Preview (first 5 rows)")
-        st.dataframe(df.head())
+        st.markdown("#### 📊 Main Data Table (AI-Enhanced)")
+
+        # --- 1. Show all relevant columns ---
+        ai_cols = [
+            'Date', 'Advertiser', 'Channel', 'Ad format', 'Package', 'Gross Revenue', 'eCPM', 'FillRate',
+            'Publisher Impressions', 'IVT (%)', 'Margin (%)', 'Score', 'Alert', 'Status'
+        ]
+        # Only show columns that exist in the current dataframe
+        ai_cols = [col for col in ai_cols if col in df.columns]
 
         advertisers = df['Advertiser'].dropna().unique().tolist() if 'Advertiser' in df.columns else []
         channels = df['Channel'].dropna().unique().tolist() if 'Channel' in df.columns else []
@@ -55,6 +61,43 @@ if uploaded_file:
             filtered = filtered[filtered['Channel'] == channel]
         if ad_format != "(All)":
             filtered = filtered[filtered['Ad format'] == ad_format]
+
+        # --- 2. Quick summary stats ---
+        st.markdown("##### Summary Stats")
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric("Rows", len(filtered))
+        if "Status" in filtered.columns:
+            c2.metric("Critical", (filtered["Status"] == "Critical").sum())
+            c3.metric("Needs Review", (filtered["Status"] == "Needs Review").sum())
+        if "IVT (%)" in filtered.columns:
+            c4.metric("Avg IVT (%)", round(filtered["IVT (%)"].mean(), 2))
+        if "Margin (%)" in filtered.columns:
+            c5.metric("Avg Margin (%)", round(filtered["Margin (%)"].mean(), 2))
+
+        st.divider()
+
+        # --- 3. Highlight rows: red for "Critical", yellow for "Needs Review" ---
+        def highlight_risk(row):
+            if "Status" in row:
+                if row["Status"] == "Critical":
+                    return ['background-color: #ffcccc'] * len(row)
+                elif row["Status"] == "Needs Review":
+                    return ['background-color: #fff3cd'] * len(row)
+            return [''] * len(row)
+
+        st.markdown("##### All Packages (scroll right ➡️ to see all AI columns)")
+        st.dataframe(filtered[ai_cols].style.apply(highlight_risk, axis=1), use_container_width=True, height=520)
+
+        st.divider()
+
+        # --- 4. Show ONLY the risky packages in a separate table ---
+        if "Status" in filtered.columns:
+            risky = filtered[filtered['Status'].isin(['Critical', 'Needs Review'])]
+            st.markdown("##### 🚨 Risky Packages (Critical & Needs Review)")
+            if not risky.empty:
+                st.dataframe(risky[ai_cols].style.apply(highlight_risk, axis=1), use_container_width=True, height=320)
+            else:
+                st.info("No risky packages found for this selection.")
 
         st.markdown("---")
         show_dropped_channels(filtered)
