@@ -104,7 +104,6 @@ def show_ai_insights(df):
         st.markdown("---")
 
     # --- Actionable Opportunities ---
-    # Example: New top 10 entry or high fill+low eCPM (opportunity)
     new_top10 = []
     opportunity = []
     recent = set(top5['Package']).union(set(bottom5['Package']))
@@ -125,3 +124,48 @@ def show_ai_insights(df):
             st.markdown(f"- **{pkg}**: high fill rate, low eCPM—suggest floor review.")
     if not new_top10 and not opportunity:
         st.markdown("No new actionable insights today.")
+
+    # --- Top 10 Revenue Apps Impact ---
+    st.subheader("Top 10 Apps by Gross Revenue – Impact")
+
+    top10_revenue = df[df['Date'] == latest_date].sort_values('Gross Revenue', ascending=False).head(10)
+    for idx, row in top10_revenue.iterrows():
+        pkg = row['Package']
+        curr_rev = row['Gross Revenue']
+        prev_rows = df[(df['Date'] == previous_date) & (df['Package'] == pkg)]
+        if not prev_rows.empty:
+            prev_rev = prev_rows.iloc[0]['Gross Revenue']
+            change = int(round((curr_rev - prev_rev) / prev_rev * 100)) if prev_rev != 0 else 9999
+            # Main driver logic (reuse from previous)
+            prev_imp = prev_rows.iloc[0]['Publisher Impressions']
+            curr_imp = row['Publisher Impressions']
+            imp_change = int(round((curr_imp - prev_imp) / prev_imp * 100)) if prev_imp != 0 else 0
+            prev_ecpm = prev_rows.iloc[0]['eCPM']
+            curr_ecpm = row['eCPM']
+            ecpm_change = int(round((curr_ecpm - prev_ecpm) / prev_ecpm * 100)) if prev_ecpm != 0 else 0
+            prev_fill = prev_rows.iloc[0]['FillRate']
+            curr_fill = row['FillRate']
+            fill_change = int(round((curr_fill - prev_fill) / prev_fill * 100)) if prev_fill != 0 else 0
+
+            driver_metric = max(
+                [('Fill Rate', fill_change), ('eCPM', ecpm_change), ('Impressions', imp_change)],
+                key=lambda x: abs(x[1])
+            )
+            driver_text = f"{driver_metric[0].lower()} {'up' if driver_metric[1]>0 else 'down'} {abs(driver_metric[1])}%"
+
+            # Color for up/down
+            color = "#22B573" if change > 0 else "#e74c3c"
+            sign = "+" if change > 0 else ""
+
+            st.markdown(
+                f"**{idx+1}. {pkg} ({row['Ad format']})**  \n"
+                f"Date: {latest_date.strftime('%Y-%m-%d')}  \n"
+                f"Revenue: <b>${int(curr_rev):,}</b> <i>(Current)</i> | <b>${int(prev_rev):,}</b> <i>(Previous)</i>  "
+                f"<span style='color:{color};font-weight:bold;'>[{sign}{change}%]</span>  \n"
+                f"Main driver: {driver_text}",
+                unsafe_allow_html=True
+            )
+            st.markdown("---")
+        else:
+            st.markdown(f"**{pkg} ({row['Ad format']})**  \nNo data for previous day.")
+            st.markdown("---")
