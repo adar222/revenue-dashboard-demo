@@ -19,7 +19,6 @@ def comma(x):
         return x
 
 st.set_page_config(page_title="AI-Powered Revenue Action Center", layout="wide")
-st.set_page_config(page_title="AI-Powered Revenue Action Center", layout="wide")
 
 st.markdown("# 📈 AI-Powered Revenue Action Center")
 
