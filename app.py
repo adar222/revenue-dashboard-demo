@@ -3,6 +3,22 @@ import pandas as pd
 import numpy as np
 from ai_insights import show_ai_insights
 
+# --- Helper functions ---
+def pct(curr, prev):
+    try:
+        if prev == 0:
+            return 9999
+        return int(round((curr - prev) / prev * 100))
+    except:
+        return 0
+
+def comma(x):
+    try:
+        return f"{int(round(float(x))):,}"
+    except:
+        return x
+
+st.set_page_config(page_title="AI-Powered Revenue Action Center", layout="wide")
 st.set_page_config(page_title="AI-Powered Revenue Action Center", layout="wide")
 
 st.markdown("# 📈 AI-Powered Revenue Action Center")
