@@ -18,12 +18,26 @@ def colored_dot(percent):
     else:
         return "🟡"
 
+def margin_icon(margin):
+    if margin >= 40:
+        return "✅"
+    elif margin < 25:
+        return "❗"
+    else:
+        return ""
+
+def ivt_icon(ivt):
+    if ivt > 10:
+        return "⚠️"
+    else:
+        return ""
+
 def alert_text(margin, ivt):
     alerts = []
     if margin < 25:
-        alerts.append("**Low Margin**")
+        alerts.append("Low Margin ❗")
     if ivt > 10:
-        alerts.append("**High IVT**")
+        alerts.append("High IVT ⚠️")
     return ", ".join(alerts)
 
 if uploaded_file:
@@ -86,70 +100,107 @@ if uploaded_file:
 
         # Order by last 3 days revenue (top 10)
         merged = merged.sort_values('last3_revenue', ascending=False).head(10)
-
-        # Reset index for iteration
         merged = merged.reset_index()
 
-        # Build column headers with dates
-        col_labels = [
-            "Package",
-            f"Last 3d Revenue\n:blue[{curr_dates_str}]",
-            f"Prev 3d Revenue\n:gray[{prev_dates_str}]",
-            "$ Change",
-            "% Change",
-            f"Margin\n:blue[{curr_dates_str}]",
-            f"IVT\n:blue[{curr_dates_str}]",
-            "Alert(s)",
-            "Show More"
-        ]
-
-        # Show formatted table with expanders per row
+        # Prepare summary DataFrame with icons/colors as text
+        summary_rows = []
         for idx, row in merged.iterrows():
             pkg = row['Package']
-            last3_rev = row['last3_revenue']
-            prev3_rev = row['prev3_revenue']
-            dollar_change = row['$ Change']
-            pct_change = row['% Change']
-            last3_margin = row['last3_margin']
-            last3_ivt = row['last3_ivt']
+            last3_rev = f"${row['last3_revenue']:,.0f}"
+            prev3_rev = f"${row['prev3_revenue']:,.0f}"
+            dollar_change = f"{'+' if row['$ Change'] >= 0 else ''}${row['$ Change']:,.0f}"
+            pct_change = f"{'+' if row['% Change'] >= 0 else ''}{row['% Change']:.0f}%"
+            margin = f"{int(round(row['last3_margin']))}% {margin_icon(row['last3_margin'])}"
+            ivt = f"{int(round(row['last3_ivt']))}% {ivt_icon(row['last3_ivt'])}"
+            alerts = f"{colored_dot(row['% Change'])} {alert_text(row['last3_margin'], row['last3_ivt'])}"
+            summary_rows.append([pkg, last3_rev, prev3_rev, dollar_change, pct_change, margin, ivt, alerts])
 
-            dot = colored_dot(pct_change)
-            alerts = alert_text(last3_margin, last3_ivt)
+        summary_df = pd.DataFrame(
+            summary_rows,
+            columns=[
+                "Package",
+                f"Last 3d Revenue\n{curr_dates_str}",
+                f"Prev 3d Revenue\n{prev_dates_str}",
+                "$ Change",
+                "% Change",
+                f"Margin\n{curr_dates_str}",
+                f"IVT\n{curr_dates_str}",
+                "Alert(s)"
+            ]
+        )
 
-            cols = st.columns([2.8, 2.3, 2.3, 1.5, 1.5, 1.5, 1.2, 2, 1.5])
-            cols[0].markdown(f"**{pkg}**")
-            cols[1].markdown(f"${last3_rev:,.0f}")
-            cols[2].markdown(f"${prev3_rev:,.0f}")
-            cols[3].markdown(f"{'+' if dollar_change >=0 else ''}${dollar_change:,.0f}")
-            cols[4].markdown(f"{'+' if pct_change >=0 else ''}{pct_change:.0f}%")
-            cols[5].markdown(f"{int(round(last3_margin))}%")
-            cols[6].markdown(f"{int(round(last3_ivt))}%")
-            alert_str = f"{dot}"
-            if alerts:
-                alert_str += f" {alerts}"
-            cols[7].markdown(alert_str)
-            with cols[8]:
-                with st.expander("Show More", expanded=False):
-                    # Breakdown by Channel and Date for this package (last 6 days)
-                    recent = df[(df['Package'] == pkg) & (df['Date'] >= prev_window_start)]
-                    if not recent.empty:
-                        breakdown = recent.groupby(['Channel', 'Date']).agg({
-                            'Gross Revenue': 'sum',
-                            'eCPM': 'mean',
-                            'IVT (%)': 'mean',
-                            'Margin (%)': 'mean'
-                        }).reset_index()
-                        # Formatting
-                        breakdown['Gross Revenue'] = breakdown['Gross Revenue'].apply(lambda x: f"${x:,.0f}")
-                        breakdown['Date'] = breakdown['Date'].dt.strftime('%d/%m')
-                        breakdown['eCPM'] = breakdown['eCPM'].apply(lambda x: f"{x:.2f}")
-                        breakdown['IVT (%)'] = breakdown['IVT (%)'].apply(lambda x: f"{int(round(x))}%")
-                        breakdown['Margin (%)'] = breakdown['Margin (%)'].apply(lambda x: f"{int(round(x))}%")
-                        st.dataframe(breakdown, use_container_width=True, height=230)
-                    else:
-                        st.write("No data available for this package in last 6 days.")
+        st.dataframe(
+            summary_df,
+            use_container_width=True,
+            hide_index=True,
+            height=min(520, 60 + len(summary_df) * 42)  # Adjust height to show 10 rows comfortably
+        )
 
-            st.markdown("---")
+        # --- Expander under each summary row ---
+        st.markdown("### Show Details by Channel & Date")
+        for idx, row in merged.iterrows():
+            pkg = row['Package']
+            expander = st.expander(f"Show More for {pkg}", expanded=False, key=f"expander_{pkg}")
+            with expander:
+                recent = df[(df['Package'] == pkg) & (df['Date'] >= prev_window_start)]
+                if not recent.empty:
+                    # Compute channel total revenue for sorting
+                    channel_totals = recent.groupby('Channel')['Gross Revenue'].sum().sort_values(ascending=False)
+                    for channel in channel_totals.index:
+                        channel_df = recent[recent['Channel'] == channel].copy()
+                        channel_df = channel_df.sort_values('Date', ascending=False)
+                        st.markdown(f"**💰 {channel} (Total: ${int(channel_totals[channel]):,})**")
+
+                        # Prepare display table with icons/colors
+                        rows = []
+                        prev_rev = None
+                        for i, row2 in channel_df.iterrows():
+                            date_str = row2['Date'].strftime('%d/%m')
+                            # Most recent date: 🟢
+                            date_icon = "🟢 " if row2['Date'] == channel_df['Date'].max() else ""
+                            # Revenue with arrows
+                            curr_rev = row2['Gross Revenue']
+                            if prev_rev is not None:
+                                if curr_rev > prev_rev:
+                                    rev_str = f"**${int(curr_rev):,} ▲**"
+                                elif curr_rev < prev_rev:
+                                    rev_str = f"**${int(curr_rev):,} ▼**"
+                                else:
+                                    rev_str = f"${int(curr_rev):,}"
+                            else:
+                                rev_str = f"**${int(curr_rev):,}**"
+                            prev_rev = curr_rev
+
+                            # eCPM
+                            ecpm = f"{row2['eCPM']:.2f}"
+                            # IVT: icon if >10%
+                            ivt_val = row2['IVT (%)'] if 'IVT (%)' in row2 else row2.get('IVT', 0)
+                            ivt = f"{int(round(ivt_val))}%"
+                            if ivt_val > 10:
+                                ivt = f"**{ivt} ⚠️**"
+                            # Margin: green/✅ if ≥40, red/❗ if <25
+                            margin_val = row2['Margin (%)'] if 'Margin (%)' in row2 else row2.get('Margin', 0)
+                            if margin_val >= 40:
+                                margin = f"**<span style='color:green'>{int(round(margin_val))}% ✅</span>**"
+                            elif margin_val < 25:
+                                margin = f"**<span style='color:red'>{int(round(margin_val))}% ❗</span>**"
+                            else:
+                                margin = f"{int(round(margin_val))}%"
+                            # Collect the row
+                            rows.append([
+                                f"{date_icon}{date_str}",
+                                rev_str,
+                                ecpm,
+                                ivt,
+                                margin
+                            ])
+
+                        # Build as DataFrame for display
+                        disp_df = pd.DataFrame(rows, columns=["Date", "Gross Revenue", "eCPM", "IVT (%)", "Margin (%)"])
+                        st.write(disp_df.to_html(escape=False, index=False), unsafe_allow_html=True)
+                        st.markdown("---")
+                else:
+                    st.write("No data available for this package in last 6 days.")
 
         st.markdown("## 💬 Ask AI About Your Data (Optional)")
         api_key = st.text_input("Paste your OpenAI API key to enable AI analysis (will not be saved):", type="password", key="api_key_tab1")
