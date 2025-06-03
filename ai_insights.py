@@ -27,7 +27,7 @@ def show_ai_insights(df):
         # Defensive: skip if either is missing
         if curr_df.empty or prev_df.empty:
             continue
-        curr_row = curr_df.iloc[0]
+        curr_row = df[(df['Date'] == latest_date) & (df['Package'] == pkg)].iloc[0]
         prev_row = prev_df.iloc[0]
         prev_rev = prev_row['Gross Revenue']
         curr_rev = curr_row['Gross Revenue']
