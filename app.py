@@ -1,9 +1,8 @@
 import streamlit as st
 import pandas as pd
-from action_center import show_action_center_top10, show_dropped_channels, show_best_worst_formats
+from datetime import timedelta
 from ai_qna import show_ai_qna
 from ai_insights import show_ai_insights
-from datetime import timedelta
 
 st.set_page_config(page_title="AI Revenue Action Center", layout="wide")
 st.title("📈 AI-Powered Revenue Action Center")
@@ -18,19 +17,23 @@ def colored_dot(percent):
     else:
         return "🟡"
 
-def margin_icon(margin):
-    if margin >= 40:
-        return "✅"
-    elif margin < 25:
-        return "❗"
-    else:
-        return ""
+def comma(x):
+    try:
+        return f"{int(round(x)):,}"
+    except:
+        return x
 
-def ivt_icon(ivt):
-    if ivt > 10:
-        return "⚠️"
-    else:
-        return ""
+def two_digits(x):
+    try:
+        return f"{x:.2f}"
+    except:
+        return x
+
+def whole_percent(x):
+    try:
+        return f"{int(round(x))}%"
+    except:
+        return x
 
 def alert_text(margin, ivt):
     alerts = []
@@ -42,170 +45,124 @@ def alert_text(margin, ivt):
 
 if uploaded_file:
     df = pd.read_excel(uploaded_file)
+    st.markdown("#### 📊 Top 10 Grossing Packages: 3-Day Comparison")
 
-    # ---- SANITY CHECK START ----
-    required_columns = [
-        'Date', 'Package', 'Gross Revenue', 'eCPM', 'FillRate',
-        'Publisher Impressions', 'Ad format'
-    ]
-    missing = [col for col in required_columns if col not in df.columns]
-    if missing:
-        st.error(f"ERROR: The following required columns are missing from your Excel: {', '.join(missing)}")
-        st.stop()
-    # ---- SANITY CHECK END ----
-
-    # --- Prepare dates for 3-day rolling windows ---
+    # Data cleanup
     df['Date'] = pd.to_datetime(df['Date'])
-    latest_day = df['Date'].max()
-    prev_window_end = latest_day - timedelta(days=3)
-    prev_window_start = latest_day - timedelta(days=5)
-    curr_window = (df['Date'] > prev_window_end)
-    prev_window = (df['Date'] >= prev_window_start) & (df['Date'] <= prev_window_end)
+    df = df.sort_values('Date')
+    df['Gross Revenue'] = pd.to_numeric(df['Gross Revenue'], errors='coerce').fillna(0)
+    df['eCPM'] = pd.to_numeric(df['eCPM'], errors='coerce').fillna(0)
+    df['FillRate'] = pd.to_numeric(df['FillRate'], errors='coerce').fillna(0)
+    df['IVT'] = pd.to_numeric(df['IVT'], errors='coerce').fillna(0)
+    df['Margin'] = pd.to_numeric(df.get('Margin', (df['Gross Revenue']-0)/df['Gross Revenue']*100), errors='coerce').fillna(0)
 
-    curr_dates = df.loc[curr_window, 'Date'].dt.strftime('%d/%m').unique()
-    prev_dates = df.loc[prev_window, 'Date'].dt.strftime('%d/%m').unique()
-    curr_dates_str = f"{curr_dates[0]}-{curr_dates[-1]}" if len(curr_dates) > 1 else f"{curr_dates[0]}"
-    prev_dates_str = f"{prev_dates[0]}-{prev_dates[-1]}" if len(prev_dates) > 1 else f"{prev_dates[0]}"
+    last_day = df['Date'].max()
+    prev_end = last_day - timedelta(days=3)
+    prev_start = prev_end - timedelta(days=2)
 
-    tab1, tab2 = st.tabs(["Dashboard", "AI Insights"])
+    # Last 3d and previous 3d
+    mask_last3d = (df['Date'] > prev_end) & (df['Date'] <= last_day)
+    mask_prev3d = (df['Date'] > prev_start - timedelta(days=1)) & (df['Date'] <= prev_end)
+    df_last3d = df[mask_last3d]
+    df_prev3d = df[mask_prev3d]
 
-    with tab1:
-        st.markdown("#### 🚦 Top 10 Grossing Packages: 3-Day Comparison")
+    # Aggregated by package
+    agg_last = df_last3d.groupby('Package').agg({
+        'Gross Revenue': 'sum',
+        'Margin': 'mean',
+        'IVT': 'mean'
+    }).rename(columns={
+        'Gross Revenue': 'Last 3d Revenue',
+        'Margin': 'Margin 3d',
+        'IVT': 'IVT 3d'
+    })
+    agg_prev = df_prev3d.groupby('Package').agg({
+        'Gross Revenue': 'sum'
+    }).rename(columns={'Gross Revenue': 'Prev 3d Revenue'})
 
-        # Aggregate revenue for each window, per package
-        grp_cols = ['Package']
-        agg_cols = {
-            'Gross Revenue': 'sum',
-            'Margin (%)': 'mean',
-            'IVT (%)': 'mean'
-        }
-        last3 = df[curr_window].groupby(grp_cols).agg(agg_cols).rename(
-            columns={
-                'Gross Revenue': 'last3_revenue',
-                'Margin (%)': 'last3_margin',
-                'IVT (%)': 'last3_ivt'
-            }
-        )
-        prev3 = df[prev_window].groupby(grp_cols).agg(agg_cols).rename(
-            columns={
-                'Gross Revenue': 'prev3_revenue',
-                'Margin (%)': 'prev3_margin',
-                'IVT (%)': 'prev3_ivt'
-            }
-        )
+    merged = agg_last.join(agg_prev, how='left')
+    merged['Prev 3d Revenue'] = merged['Prev 3d Revenue'].fillna(0)
+    merged['$ Change'] = merged['Last 3d Revenue'] - merged['Prev 3d Revenue']
+    merged['% Change'] = merged.apply(lambda row: (row['$ Change'] / row['Prev 3d Revenue'] * 100) if row['Prev 3d Revenue'] > 0 else 9999, axis=1)
+    merged['Alert(s)'] = merged.apply(lambda row: alert_text(row['Margin 3d'], row['IVT 3d']), axis=1)
+    merged['Dot'] = merged['% Change'].apply(colored_dot)
+    merged = merged.sort_values('Last 3d Revenue', ascending=False).head(10).reset_index()
 
-        merged = last3.merge(prev3, left_index=True, right_index=True, how='outer').fillna(0)
-        merged['$ Change'] = merged['last3_revenue'] - merged['prev3_revenue']
-        merged['% Change'] = ((merged['last3_revenue'] - merged['prev3_revenue']) / merged['prev3_revenue'].replace(0, 1)) * 100
+    # Main Table header
+    st.markdown("""
+    <style>
+    .freeze-header th { position: sticky; top: 0; background-color: #fff; z-index: 5;}
+    </style>
+    """, unsafe_allow_html=True)
+    st.markdown('<div style="overflow-x:auto;">', unsafe_allow_html=True)
 
-        # Order by last 3 days revenue (top 10)
-        merged = merged.sort_values('last3_revenue', ascending=False).head(10)
-        merged = merged.reset_index()
+    # Show table header (frozen via CSS)
+    st.write(" ")
+    header_row = [
+        "Package",
+        f"Last 3d Revenue {last_day.strftime('%d/%m')}",
+        f"Prev 3d Revenue {(prev_end).strftime('%d/%m')}",
+        "$ Change", "% Change", 
+        f"Margin {last_day.strftime('%d/%m')}",
+        f"IVT {last_day.strftime('%d/%m')}",
+        "Alert(s)"
+    ]
+    table_data = []
+    for idx, row in merged.iterrows():
+        pkg = row['Package']
+        alerts = row['Alert(s)']
+        dot = row['Dot']
+        table_data.append([
+            f"{pkg} {dot}",
+            f"${comma(row['Last 3d Revenue'])}",
+            f"${comma(row['Prev 3d Revenue'])}",
+            f"${comma(row['$ Change'])}",
+            f"{int(row['% Change']) if abs(row['% Change']) != 9999 else '--'}%",
+            whole_percent(row['Margin 3d']),
+            whole_percent(row['IVT 3d']),
+            alerts
+        ])
 
-        # Prepare summary DataFrame with icons/colors as text
-        summary_rows = []
-        for idx, row in merged.iterrows():
-            pkg = row['Package']
-            last3_rev = f"${row['last3_revenue']:,.0f}"
-            prev3_rev = f"${row['prev3_revenue']:,.0f}"
-            dollar_change = f"{'+' if row['$ Change'] >= 0 else ''}${row['$ Change']:,.0f}"
-            pct_change = f"{'+' if row['% Change'] >= 0 else ''}{row['% Change']:.0f}%"
-            margin = f"{int(round(row['last3_margin']))}% {margin_icon(row['last3_margin'])}"
-            ivt = f"{int(round(row['last3_ivt']))}% {ivt_icon(row['last3_ivt'])}"
-            alerts = f"{colored_dot(row['% Change'])} {alert_text(row['last3_margin'], row['last3_ivt'])}"
-            summary_rows.append([pkg, last3_rev, prev3_rev, dollar_change, pct_change, margin, ivt, alerts])
+    st.table(pd.DataFrame(table_data, columns=header_row))
 
-        summary_df = pd.DataFrame(
-            summary_rows,
-            columns=[
-                "Package",
-                f"Last 3d Revenue\n{curr_dates_str}",
-                f"Prev 3d Revenue\n{prev_dates_str}",
-                "$ Change",
-                "% Change",
-                f"Margin\n{curr_dates_str}",
-                f"IVT\n{curr_dates_str}",
-                "Alert(s)"
-            ]
-        )
+    st.markdown('</div>', unsafe_allow_html=True)
 
-        st.dataframe(
-            summary_df,
-            use_container_width=True,
-            hide_index=True,
-            height=min(520, 60 + len(summary_df) * 42)
-        )
+    st.markdown("### Show Details by Channel & Date")
 
-        # --- Expanders: show channel/date breakdown for each app ---
-        st.markdown("### Show Details by Channel & Date")
-        for idx, row in merged.iterrows():
-            pkg = row['Package']
-            expander = st.expander(f"Show More: {pkg}", expanded=False, key=f"expander_{pkg}_{idx}")
-            with expander:
-                recent = df[(df['Package'] == pkg) & (df['Date'] >= prev_window_start)]
-                if not recent.empty:
-                    channel_totals = recent.groupby('Channel')['Gross Revenue'].sum().sort_values(ascending=False)
-                    for channel in channel_totals.index:
-                        channel_df = recent[recent['Channel'] == channel].copy()
-                        channel_df = channel_df.sort_values('Date', ascending=False)
-                        st.markdown(f"**💰 {channel} (Total: ${int(channel_totals[channel]):,})**")
-                        rows = []
-                        prev_rev = None
-                        for i, row2 in channel_df.iterrows():
-                            date_str = row2['Date'].strftime('%d/%m')
-                            date_icon = "🟢 " if row2['Date'] == channel_df['Date'].max() else ""
-                            curr_rev = row2['Gross Revenue']
-                            if prev_rev is not None:
-                                if curr_rev > prev_rev:
-                                    rev_str = f"**${int(curr_rev):,} ▲**"
-                                elif curr_rev < prev_rev:
-                                    rev_str = f"**${int(curr_rev):,} ▼**"
-                                else:
-                                    rev_str = f"${int(curr_rev):,}"
-                            else:
-                                rev_str = f"**${int(curr_rev):,}**"
-                            prev_rev = curr_rev
-                            ecpm = f"{row2['eCPM']:.2f}"
-                            ivt_val = row2['IVT (%)'] if 'IVT (%)' in row2 else row2.get('IVT', 0)
-                            ivt = f"{int(round(ivt_val))}%"
-                            if ivt_val > 10:
-                                ivt = f"**{ivt} ⚠️**"
-                            margin_val = row2['Margin (%)'] if 'Margin (%)' in row2 else row2.get('Margin', 0)
-                            if margin_val >= 40:
-                                margin = f"**<span style='color:green'>{int(round(margin_val))}% ✅</span>**"
-                            elif margin_val < 25:
-                                margin = f"**<span style='color:red'>{int(round(margin_val))}% ❗</span>**"
-                            else:
-                                margin = f"{int(round(margin_val))}%"
-                            rows.append([
-                                f"{date_icon}{date_str}",
-                                rev_str,
-                                ecpm,
-                                ivt,
-                                margin
-                            ])
-                        disp_df = pd.DataFrame(rows, columns=["Date", "Gross Revenue", "eCPM", "IVT (%)", "Margin (%)"])
-                        st.write(disp_df.to_html(escape=False, index=False), unsafe_allow_html=True)
-                        st.markdown("---")
-                else:
-                    st.write("No data available for this package in last 6 days.")
+    for idx, row in merged.iterrows():
+        pkg = row['Package']
+        with st.expander(f"Show More: {pkg}", expanded=False):
+            # Show breakdown by channel and date
+            subset = df[df['Package'] == pkg]
+            if not subset.empty:
+                detail_table = subset.groupby(['Channel', 'Date']).agg({
+                    'Gross Revenue': 'sum',
+                    'eCPM': 'mean',
+                    'FillRate': 'mean',
+                    'IVT': 'mean',
+                    'Margin': 'mean'
+                }).reset_index().sort_values('Gross Revenue', ascending=False)
+                detail_table['Date'] = detail_table['Date'].dt.strftime('%d/%m')
+                detail_table['Gross Revenue'] = detail_table['Gross Revenue'].apply(lambda x: f"${comma(x)}")
+                detail_table['eCPM'] = detail_table['eCPM'].apply(two_digits)
+                detail_table['FillRate'] = detail_table['FillRate'].apply(lambda x: f"{int(round(x))}%")
+                detail_table['IVT'] = detail_table['IVT'].apply(lambda x: f"{int(round(x))}%")
+                detail_table['Margin'] = detail_table['Margin'].apply(whole_percent)
+                st.dataframe(detail_table, use_container_width=True)
+            else:
+                st.info("No channel/date data for this package.")
 
-        st.markdown("## 💬 Ask AI About Your Data (Optional)")
-        api_key = st.text_input("Paste your OpenAI API key to enable AI analysis (will not be saved):", type="password", key="api_key_tab1")
-        if api_key:
-            show_ai_qna(df, api_key)
-        else:
-            st.info("Enter your OpenAI API key above to enable AI Q&A.")
+    # AI Q&A
+    st.markdown("## 💬 Ask AI About Your Data (Optional)")
+    api_key = st.text_input("Paste your OpenAI API key to enable AI analysis (will not be saved):", type="password")
+    if api_key:
+        show_ai_qna(df, api_key)
+    else:
+        st.info("Enter your OpenAI API key above to enable AI Q&A.")
 
-    with tab2:
-        show_ai_insights(df)
-        st.markdown("---")
-        st.markdown("## 💬 Ask AI About Your Data (Optional)")
-        api_key2 = st.text_input("Paste your OpenAI API key to enable AI analysis (will not be saved):", type="password", key="api_key_tab2")
-        if api_key2:
-            show_ai_qna(df, api_key2)
-        else:
-            st.info("Enter your OpenAI API key above to enable AI Q&A.")
+    # Tab for AI Insights
+    st.markdown("---")
+    st.markdown("### See also: AI Insights (top navigation)")
 
 else:
     st.info("Please upload your Excel file to see all action items and enable filtering.")
