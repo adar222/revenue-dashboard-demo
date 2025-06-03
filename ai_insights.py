@@ -8,42 +8,30 @@ def show_ai_insights(df):
     latest_date = df['Date'].max()
     previous_date = df[df['Date'] < latest_date]['Date'].max()
 
-    # Step 1: See what dates and packages exist
-    st.write("Unique dates:", df['Date'].unique())
-    st.write("Unique packages:", df['Package'].unique())
-    st.write("Row count for latest_date:", len(df[df['Date'] == latest_date]))
-    st.write("Row count for previous_date:", len(df[df['Date'] == previous_date]))
+    # Only keep packages that appear in BOTH dates
+    packages_latest = set(df[df['Date'] == latest_date]['Package'])
+    packages_prev = set(df[df['Date'] == previous_date]['Package'])
+    valid_packages = packages_latest & packages_prev
 
-    # Pivot to find top_package
-    pivot = df.pivot_table(index=['Package'], columns='Date', values='Gross Revenue', aggfunc='sum', fill_value=0)
-    if pivot.shape[1] >= 2:
-        prev_day_col = previous_date
-        curr_day_col = latest_date
-        pivot['diff'] = pivot[curr_day_col] - pivot[prev_day_col]
-        pivot['abs_diff'] = pivot['diff'].abs()
-        top_package = pivot.sort_values('abs_diff', ascending=False).index[0]
-        st.write("Top package:", top_package)
-    else:
-        top_package = df[df['Date'] == latest_date]['Package'].iloc[0]
-        st.write("Fallback top_package:", top_package)
-
-    # Show if we get rows for top_package/latest_date/previous_date
-    current_rows = df[(df['Date'] == latest_date) & (df['Package'] == top_package)]
-    prev_rows = df[(df['Date'] == previous_date) & (df['Package'] == top_package)]
-    st.write("Current rows found:", len(current_rows))
-    st.write("Previous rows found:", len(prev_rows))
-    st.write("Current rows preview:", current_rows)
-    st.write("Previous rows preview:", prev_rows)
-
-    # Only proceed if BOTH exist
-    if len(current_rows) > 0 and len(prev_rows) > 0:
-        df_current = current_rows.iloc[0]
-        df_prev = prev_rows.iloc[0]
-    else:
-        st.error("No data found for top package in one or both dates! Please check your data.")
+    if not valid_packages:
+        st.warning("No packages found with data for both the latest and previous dates.")
         return
 
-    # Calculate change
+    # Compute absolute revenue change for these packages
+    rev_changes = []
+    for pkg in valid_packages:
+        curr_row = df[(df['Date'] == latest_date) & (df['Package'] == pkg)].iloc[0]
+        prev_row = df[(df['Date'] == previous_date) & (df['Package'] == pkg)].iloc[0]
+        change = abs(curr_row['Gross Revenue'] - prev_row['Gross Revenue'])
+        rev_changes.append((pkg, change))
+
+    # Pick package with biggest absolute change
+    top_package = sorted(rev_changes, key=lambda x: -x[1])[0][0]
+
+    df_current = df[(df['Date'] == latest_date) & (df['Package'] == top_package)].iloc[0]
+    df_prev = df[(df['Date'] == previous_date) & (df['Package'] == top_package)].iloc[0]
+
+    # Calculate % change
     prev_rev = df_prev['Gross Revenue']
     curr_rev = df_current['Gross Revenue']
     growth = ((curr_rev - prev_rev) / prev_rev * 100) if prev_rev != 0 else float('inf')
