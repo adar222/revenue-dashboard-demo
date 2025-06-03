@@ -17,59 +17,60 @@ def show_ai_insights(df):
         st.warning("No packages found with data for both the latest and previous dates.")
         return
 
-    # Compute absolute revenue change for these packages
-    rev_changes = []
+    # Compute % revenue change for all valid packages
+    movers = []
     for pkg in valid_packages:
         curr_row = df[(df['Date'] == latest_date) & (df['Package'] == pkg)].iloc[0]
         prev_row = df[(df['Date'] == previous_date) & (df['Package'] == pkg)].iloc[0]
-        change = abs(curr_row['Gross Revenue'] - prev_row['Gross Revenue'])
-        rev_changes.append((pkg, change))
+        prev_rev = prev_row['Gross Revenue']
+        curr_rev = curr_row['Gross Revenue']
+        if prev_rev != 0:
+            pct_change = ((curr_rev - prev_rev) / prev_rev) * 100
+        else:
+            pct_change = float('inf')
+        movers.append({
+            'Package': pkg,
+            'Ad format': curr_row['Ad format'],
+            'Previous Revenue': prev_rev,
+            'Current Revenue': curr_rev,
+            'Change (%)': pct_change,
+            'Previous eCPM': prev_row['eCPM'],
+            'Current eCPM': curr_row['eCPM'],
+            'Previous FillRate': prev_row['FillRate'],
+            'Current FillRate': curr_row['FillRate'],
+            'Previous Date': previous_date,
+            'Current Date': latest_date,
+        })
 
-    # Pick package with biggest absolute change
-    top_package = sorted(rev_changes, key=lambda x: -x[1])[0][0]
+    # Convert to DataFrame and sort
+    movers_df = pd.DataFrame(movers)
+    top_movers = movers_df.sort_values('Change (%)', ascending=False).head(8)
+    bottom_movers = movers_df.sort_values('Change (%)', ascending=True).head(8)
 
-    df_current = df[(df['Date'] == latest_date) & (df['Package'] == top_package)].iloc[0]
-    df_prev = df[(df['Date'] == previous_date) & (df['Package'] == top_package)].iloc[0]
+    st.header("🤖 AI Insights: Top 8 Revenue Increases (Biggest Movers)")
+    for _, row in top_movers.iterrows():
+        st.markdown(
+            f"""
+            <span style="color:#22B573;font-size:18px;"><b>⬆️ {row['Package']} ({row['Ad format']})</b></span>  
+            <span style="font-size:15px;">
+            {row['Current Date'].strftime('%Y-%m-%d')}: Gross Revenue changed by <b>{row['Change (%)']:.1f}%</b>
+            (from <b>${row['Previous Revenue']:.2f}</b> to <b>${row['Current Revenue']:.2f}</b>)
+            </span>
+            """, unsafe_allow_html=True)
+        st.write(f"eCPM: ${row['Previous eCPM']:.2f} ➡️ ${row['Current eCPM']:.2f}")
+        st.write(f"Fill Rate: {row['Previous FillRate']:.2%} ➡️ {row['Current FillRate']:.2%}")
+        st.markdown("---")
 
-    # Calculate % change
-    prev_rev = df_prev['Gross Revenue']
-    curr_rev = df_current['Gross Revenue']
-    growth = ((curr_rev - prev_rev) / prev_rev * 100) if prev_rev != 0 else float('inf')
-
-    st.header("🤖 AI Insights: Top Revenue Changes (Biggest Movers)")
-    st.markdown(
-        f"""
-        <span style="color:#22B573;font-size:20px;"><b>🔥 {df_current['Package']} ({df_current['Ad format']})</b></span>
-        """,
-        unsafe_allow_html=True
-    )
-    st.markdown(
-        f"""
-        <span style="font-size:16px;">
-        <b>{latest_date.strftime('%Y-%m-%d')}</b>: Gross Revenue changed by <b>{growth:.1f}%</b>
-        (from <b>${prev_rev:.2f}</b> to <b>${curr_rev:.2f}</b>)
-        </span>
-        """,
-        unsafe_allow_html=True
-    )
-
-    cols = st.columns([2, 2, 1, 2])
-    with cols[0]:
-        st.markdown("#### Previous Day")
-        st.write(f"Date: {previous_date.strftime('%Y-%m-%d')}")
-        st.write(f"Gross Revenue: ${df_prev['Gross Revenue']:.2f}")
-        st.write(f"eCPM: ${df_prev['eCPM']:.2f}")
-        st.write(f"Fill Rate: {df_prev['FillRate']:.2%}")
-    with cols[1]:
-        st.markdown("#### Current Day")
-        st.write(f"Date: {latest_date.strftime('%Y-%m-%d')}")
-        st.write(f"Gross Revenue: ${df_current['Gross Revenue']:.2f}")
-        st.write(f"eCPM: ${df_current['eCPM']:.2f}")
-        st.write(f"Fill Rate: {df_current['FillRate']:.2%}")
-    with cols[2]:
-        st.write("")
-        st.write("➡️")
-    with cols[3]:
-        st.markdown("#### Impact")
-        st.markdown("🔥 Critical Change")
-    st.markdown("---")
+    st.header("🤖 AI Insights: Top 8 Revenue Decreases (Biggest Drops)")
+    for _, row in bottom_movers.iterrows():
+        st.markdown(
+            f"""
+            <span style="color:#e74c3c;font-size:18px;"><b>⬇️ {row['Package']} ({row['Ad format']})</b></span>  
+            <span style="font-size:15px;">
+            {row['Current Date'].strftime('%Y-%m-%d')}: Gross Revenue changed by <b>{row['Change (%)']:.1f}%</b>
+            (from <b>${row['Previous Revenue']:.2f}</b> to <b>${row['Current Revenue']:.2f}</b>)
+            </span>
+            """, unsafe_allow_html=True)
+        st.write(f"eCPM: ${row['Previous eCPM']:.2f} ➡️ ${row['Current eCPM']:.2f}")
+        st.write(f"Fill Rate: {row['Previous FillRate']:.2%} ➡️ {row['Current FillRate']:.2%}")
+        st.markdown("---")
