@@ -11,23 +11,23 @@ def show_ai_insights(df):
     latest_date = df['Date'].max()
     previous_date = df[df['Date'] < latest_date]['Date'].max()
 
-    # Only keep packages that appear in BOTH dates
-    packages_latest = set(df[df['Date'] == latest_date]['Package'])
-    packages_prev = set(df[df['Date'] == previous_date]['Package'])
-    valid_packages = packages_latest & packages_prev
-
-    if not valid_packages:
-        st.warning("No packages found with data for both the latest and previous dates.")
-        return
+    # Get the top 10 packages by Gross Revenue on the latest date
+    top_packages = (
+        df[df['Date'] == latest_date]
+        .sort_values('Gross Revenue', ascending=False)
+        ['Package'].head(10).tolist()
+    )
 
     movers = []
-    for pkg in valid_packages:
+    for pkg in top_packages:
         curr_df = df[(df['Date'] == latest_date) & (df['Package'] == pkg)]
         prev_df = df[(df['Date'] == previous_date) & (df['Package'] == pkg)]
+
         # Defensive: skip if either is missing
         if curr_df.empty or prev_df.empty:
             continue
-        curr_row = df[(df['Date'] == latest_date) & (df['Package'] == pkg)].iloc[0]
+
+        curr_row = curr_df.iloc[0]
         prev_row = prev_df.iloc[0]
         prev_rev = prev_row['Gross Revenue']
         curr_rev = curr_row['Gross Revenue']
@@ -73,14 +73,17 @@ def show_ai_insights(df):
             'Main Driver': driver_text
         })
 
+    if not movers:
+        st.warning("No packages found in the top 10 with data for both dates.")
+        return
 
-    # Sort and pick top/bottom 5
+    # Sort within the Top 10 by revenue % change (up/down)
     movers_df = pd.DataFrame(movers)
     top5 = movers_df.sort_values('Change (%)', ascending=False).head(5)
     bottom5 = movers_df.sort_values('Change (%)', ascending=True).head(5)
 
     # --- Top 5 Movers Up ---
-    st.subheader("Top 5 Movers Up")
+    st.subheader("Top 5 Movers Up (from Top 10 by Revenue)")
     for _, row in top5.iterrows():
         st.markdown(
             f"⬆️ **{row['Package']} ({row['Ad format']})**  \n"
@@ -95,7 +98,7 @@ def show_ai_insights(df):
         st.markdown("---")
 
     # --- Top 5 Movers Down ---
-    st.subheader("Top 5 Movers Down")
+    st.subheader("Top 5 Movers Down (from Top 10 by Revenue)")
     for _, row in bottom5.iterrows():
         st.markdown(
             f"⬇️ **{row['Package']} ({row['Ad format']})**  \n"
@@ -113,7 +116,7 @@ def show_ai_insights(df):
     new_top10 = []
     opportunity = []
     recent = set(top5['Package']).union(set(bottom5['Package']))
-    all_top_latest = set(df[df['Date'] == latest_date].sort_values('Gross Revenue', ascending=False)['Package'].head(10))
+    all_top_latest = set(top_packages)
     all_top_prev = set(df[df['Date'] == previous_date].sort_values('Gross Revenue', ascending=False)['Package'].head(10))
     for pkg in all_top_latest - all_top_prev:
         new_top10.append(pkg)
@@ -134,44 +137,22 @@ def show_ai_insights(df):
     # --- Top 10 Revenue Apps Impact ---
     st.subheader("Top 10 Apps by Gross Revenue – Impact")
 
-    top10_revenue = df[df['Date'] == latest_date].sort_values('Gross Revenue', ascending=False).head(10)
-    for idx, row in top10_revenue.iterrows():
+    for idx, row in movers_df.iterrows():
         pkg = row['Package']
-        curr_rev = row['Gross Revenue']
-        prev_rows = df[(df['Date'] == previous_date) & (df['Package'] == pkg)]
-        if not prev_rows.empty:
-            prev_rev = prev_rows.iloc[0]['Gross Revenue']
-            change = int(round((curr_rev - prev_rev) / prev_rev * 100)) if prev_rev != 0 else 9999
-            # Main driver logic (reuse from previous)
-            prev_imp = prev_rows.iloc[0]['Publisher Impressions']
-            curr_imp = row['Publisher Impressions']
-            imp_change = int(round((curr_imp - prev_imp) / prev_imp * 100)) if prev_imp != 0 else 0
-            prev_ecpm = prev_rows.iloc[0]['eCPM']
-            curr_ecpm = row['eCPM']
-            ecpm_change = int(round((curr_ecpm - prev_ecpm) / prev_ecpm * 100)) if prev_ecpm != 0 else 0
-            prev_fill = prev_rows.iloc[0]['FillRate']
-            curr_fill = row['FillRate']
-            fill_change = int(round((curr_fill - prev_fill) / prev_fill * 100)) if prev_fill != 0 else 0
+        curr_rev = int(row['Current Revenue'].replace(',', ''))
+        prev_rev = int(row['Previous Revenue'].replace(',', ''))
+        change = row['Change (%)']
+        driver_text = row['Main Driver']
 
-            driver_metric = max(
-                [('Fill Rate', fill_change), ('eCPM', ecpm_change), ('Impressions', imp_change)],
-                key=lambda x: abs(x[1])
-            )
-            driver_text = f"{driver_metric[0].lower()} {'up' if driver_metric[1]>0 else 'down'} {abs(driver_metric[1])}%"
+        color = "#22B573" if change > 0 else "#e74c3c"
+        sign = "+" if change > 0 else ""
 
-            # Color for up/down
-            color = "#22B573" if change > 0 else "#e74c3c"
-            sign = "+" if change > 0 else ""
-
-            st.markdown(
-                f"**{idx+1}. {pkg} ({row['Ad format']})**  \n"
-                f"Date: {latest_date.strftime('%Y-%m-%d')}  \n"
-                f"Revenue: <b>${int(curr_rev):,}</b> <i>(Current)</i> | <b>${int(prev_rev):,}</b> <i>(Previous)</i>  "
-                f"<span style='color:{color};font-weight:bold;'>[{sign}{change}%]</span>  \n"
-                f"Main driver: {driver_text}",
-                unsafe_allow_html=True
-            )
-            st.markdown("---")
-        else:
-            st.markdown(f"**{pkg} ({row['Ad format']})**  \nNo data for previous day.")
-            st.markdown("---")
+        st.markdown(
+            f"**{idx+1}. {pkg} ({row['Ad format']})**  \n"
+            f"Date: {row['Current Date'].strftime('%Y-%m-%d')}  \n"
+            f"Revenue: <b>${comma(curr_rev)}</b> <i>(Current)</i> | <b>${comma(prev_rev)}</b> <i>(Previous)</i>  "
+            f"<span style='color:{color};font-weight:bold;'>[{sign}{change}%]</span>  \n"
+            f"Main driver: {driver_text}",
+            unsafe_allow_html=True
+        )
+        st.markdown("---")
