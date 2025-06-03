@@ -133,32 +133,27 @@ if uploaded_file:
             summary_df,
             use_container_width=True,
             hide_index=True,
-            height=min(520, 60 + len(summary_df) * 42)  # Adjust height to show 10 rows comfortably
+            height=min(520, 60 + len(summary_df) * 42)
         )
 
-        # --- Expander under each summary row ---
+        # --- Expanders: show channel/date breakdown for each app ---
         st.markdown("### Show Details by Channel & Date")
         for idx, row in merged.iterrows():
             pkg = row['Package']
-            expander = st.expander(f"Show More for {pkg}", expanded=False, key=f"expander_{pkg}")
+            expander = st.expander(f"Show More: {pkg}", expanded=False, key=f"expander_{pkg}_{idx}")
             with expander:
                 recent = df[(df['Package'] == pkg) & (df['Date'] >= prev_window_start)]
                 if not recent.empty:
-                    # Compute channel total revenue for sorting
                     channel_totals = recent.groupby('Channel')['Gross Revenue'].sum().sort_values(ascending=False)
                     for channel in channel_totals.index:
                         channel_df = recent[recent['Channel'] == channel].copy()
                         channel_df = channel_df.sort_values('Date', ascending=False)
                         st.markdown(f"**💰 {channel} (Total: ${int(channel_totals[channel]):,})**")
-
-                        # Prepare display table with icons/colors
                         rows = []
                         prev_rev = None
                         for i, row2 in channel_df.iterrows():
                             date_str = row2['Date'].strftime('%d/%m')
-                            # Most recent date: 🟢
                             date_icon = "🟢 " if row2['Date'] == channel_df['Date'].max() else ""
-                            # Revenue with arrows
                             curr_rev = row2['Gross Revenue']
                             if prev_rev is not None:
                                 if curr_rev > prev_rev:
@@ -170,15 +165,11 @@ if uploaded_file:
                             else:
                                 rev_str = f"**${int(curr_rev):,}**"
                             prev_rev = curr_rev
-
-                            # eCPM
                             ecpm = f"{row2['eCPM']:.2f}"
-                            # IVT: icon if >10%
                             ivt_val = row2['IVT (%)'] if 'IVT (%)' in row2 else row2.get('IVT', 0)
                             ivt = f"{int(round(ivt_val))}%"
                             if ivt_val > 10:
                                 ivt = f"**{ivt} ⚠️**"
-                            # Margin: green/✅ if ≥40, red/❗ if <25
                             margin_val = row2['Margin (%)'] if 'Margin (%)' in row2 else row2.get('Margin', 0)
                             if margin_val >= 40:
                                 margin = f"**<span style='color:green'>{int(round(margin_val))}% ✅</span>**"
@@ -186,7 +177,6 @@ if uploaded_file:
                                 margin = f"**<span style='color:red'>{int(round(margin_val))}% ❗</span>**"
                             else:
                                 margin = f"{int(round(margin_val))}%"
-                            # Collect the row
                             rows.append([
                                 f"{date_icon}{date_str}",
                                 rev_str,
@@ -194,8 +184,6 @@ if uploaded_file:
                                 ivt,
                                 margin
                             ])
-
-                        # Build as DataFrame for display
                         disp_df = pd.DataFrame(rows, columns=["Date", "Gross Revenue", "eCPM", "IVT (%)", "Margin (%)"])
                         st.write(disp_df.to_html(escape=False, index=False), unsafe_allow_html=True)
                         st.markdown("---")
