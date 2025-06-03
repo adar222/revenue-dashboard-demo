@@ -11,7 +11,6 @@ st.title("📈 AI-Powered Revenue Action Center")
 uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx"])
 
 def colored_dot(percent):
-    # percent is change in revenue, float
     if percent >= 10:
         return "🟢"
     elif percent <= -10:
@@ -54,10 +53,8 @@ if uploaded_file:
     curr_dates_str = f"{curr_dates[0]}-{curr_dates[-1]}" if len(curr_dates) > 1 else f"{curr_dates[0]}"
     prev_dates_str = f"{prev_dates[0]}-{prev_dates[-1]}" if len(prev_dates) > 1 else f"{prev_dates[0]}"
 
-    # --- Tab Layout ---
     tab1, tab2 = st.tabs(["Dashboard", "AI Insights"])
 
-    # --- Dashboard Tab ---
     with tab1:
         st.markdown("#### 🚦 Top 10 Grossing Packages: 3-Day Comparison")
 
@@ -93,7 +90,6 @@ if uploaded_file:
         # Reset index for iteration
         merged = merged.reset_index()
 
-        # --- Show Table ---
         # Build column headers with dates
         col_labels = [
             "Package",
@@ -120,7 +116,6 @@ if uploaded_file:
             dot = colored_dot(pct_change)
             alerts = alert_text(last3_margin, last3_ivt)
 
-            # Display a summary row (like a table)
             cols = st.columns([2.8, 2.3, 2.3, 1.5, 1.5, 1.5, 1.2, 2, 1.5])
             cols[0].markdown(f"**{pkg}**")
             cols[1].markdown(f"${last3_rev:,.0f}")
@@ -156,7 +151,6 @@ if uploaded_file:
 
             st.markdown("---")
 
-        # ----- AI Chat bot below the summary table -----
         st.markdown("## 💬 Ask AI About Your Data (Optional)")
         api_key = st.text_input("Paste your OpenAI API key to enable AI analysis (will not be saved):", type="password", key="api_key_tab1")
         if api_key:
@@ -164,7 +158,6 @@ if uploaded_file:
         else:
             st.info("Enter your OpenAI API key above to enable AI Q&A.")
 
-    # --- AI Insights Tab ---
     with tab2:
         show_ai_insights(df)
         st.markdown("---")
