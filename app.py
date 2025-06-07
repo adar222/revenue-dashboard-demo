@@ -18,7 +18,7 @@ def safe_col(df, name):
 
 if uploaded_file:
     df = pd.read_excel(uploaded_file)
-    st.write("Columns detected:", df.columns.tolist())  # Debug aid
+    st.write("Columns detected:", df.columns.tolist())  # For debugging, remove after all works
 
     # Safely find column names
     advertiser_col = safe_col(df, 'Advertiser')
@@ -27,13 +27,13 @@ if uploaded_file:
 
     advertisers = ["(All)"]
     if advertiser_col:
-        advertisers += sorted(df[advertiser_col].dropna().unique().tolist())
+        advertisers += sorted([str(x) for x in df[advertiser_col].dropna().unique()])
     channels = ["(All)"]
     if channel_col:
-        channels += sorted(df[channel_col].dropna().unique().tolist())
+        channels += sorted([str(x) for x in df[channel_col].dropna().unique()])
     formats = ["(All)"]
     if adformat_col:
-        formats += sorted(df[adformat_col].dropna().unique().tolist())
+        formats += sorted([str(x) for x in df[adformat_col].dropna().unique()])
 
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -53,7 +53,7 @@ if uploaded_file:
 
     # ---- Revenue Drop Insight Card ----
     if advertiser != "(All)" and advertiser_col:
-        st.markdown("### 📉 Why Did Revenue Drop for **{}**?".format(advertiser))
+        st.markdown(f"### 📉 Why Did Revenue Drop for **{advertiser}**?")
         show_revenue_drop_insight(df, advertiser)
         st.markdown("---")
 
