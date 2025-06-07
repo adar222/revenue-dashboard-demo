@@ -4,21 +4,36 @@ from action_center import show_action_center_top10
 from ai_qna import show_ai_qna
 from ai_insights import show_revenue_drop_insight, show_ivt_margin_alert, show_revenue_drop_table
 
-st.write("Columns in your file:", df.columns.tolist())
-
-
 st.set_page_config(page_title="AI Revenue Action Center", layout="wide")
 st.title("📈 AI-Powered Revenue Action Center")
 
 uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx"])
 
+def safe_col(df, name):
+    """Find column in df matching name (case/space insensitive)."""
+    for c in df.columns:
+        if c.strip().lower() == name.strip().lower():
+            return c
+    return None
+
 if uploaded_file:
     df = pd.read_excel(uploaded_file)
+    st.write("Columns detected:", df.columns.tolist())  # Debug aid
 
-    # Filters
-    advertisers = ["(All)"] + sorted(df['Advertiser'].dropna().unique().tolist())
-    channels = ["(All)"] + sorted(df['Channel'].dropna().unique().tolist())
-    formats = ["(All)"] + sorted(df['Ad format'].dropna().unique().tolist())
+    # Safely find column names
+    advertiser_col = safe_col(df, 'Advertiser')
+    channel_col = safe_col(df, 'Channel')
+    adformat_col = safe_col(df, 'Ad format')
+
+    advertisers = ["(All)"]
+    if advertiser_col:
+        advertisers += sorted(df[advertiser_col].dropna().unique().tolist())
+    channels = ["(All)"]
+    if channel_col:
+        channels += sorted(df[channel_col].dropna().unique().tolist())
+    formats = ["(All)"]
+    if adformat_col:
+        formats += sorted(df[adformat_col].dropna().unique().tolist())
 
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -29,15 +44,15 @@ if uploaded_file:
         ad_format = st.selectbox("Ad Format", options=formats, index=0)
 
     filtered = df.copy()
-    if advertiser != "(All)":
-        filtered = filtered[filtered['Advertiser'] == advertiser]
-    if channel != "(All)":
-        filtered = filtered[filtered['Channel'] == channel]
-    if ad_format != "(All)":
-        filtered = filtered[filtered['Ad format'] == ad_format]
+    if advertiser != "(All)" and advertiser_col:
+        filtered = filtered[filtered[advertiser_col] == advertiser]
+    if channel != "(All)" and channel_col:
+        filtered = filtered[filtered[channel_col] == channel]
+    if ad_format != "(All)" and adformat_col:
+        filtered = filtered[filtered[adformat_col] == ad_format]
 
     # ---- Revenue Drop Insight Card ----
-    if advertiser != "(All)":
+    if advertiser != "(All)" and advertiser_col:
         st.markdown("### 📉 Why Did Revenue Drop for **{}**?".format(advertiser))
         show_revenue_drop_insight(df, advertiser)
         st.markdown("---")
