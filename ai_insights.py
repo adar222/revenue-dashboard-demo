@@ -1,84 +1,81 @@
-import pandas as pd
 import streamlit as st
+import pandas as pd
 
-def pct(curr, prev):
-    try:
-        if prev == 0:
-            return 9999
-        return int(round((curr - prev) / prev * 100))
-    except:
-        return 0
-
-def clean_num(val):
-    if pd.isnull(val):
-        return 0
-    val = str(val).replace('$','').replace(',','').replace('%','').strip()
-    try:
-        return float(val)
-    except:
-        return 0
-
-def show_ai_insights(df):
-    # --- Data Cleaning ---
+def show_revenue_drop_insight(df, advertiser):
+    df = df[df['Advertiser'] == advertiser].copy()
+    if df.empty:
+        st.info("No data for this advertiser.")
+        return
     df['Date'] = pd.to_datetime(df['Date'])
-    df = df.sort_values('Date')
+    last_date = df['Date'].max()
+    prev_date = last_date - pd.Timedelta(days=1)
+    df_last = df[df['Date'] == last_date]
+    df_prev = df[df['Date'] == prev_date]
+    rev_last = df_last['Gross Revenue'].sum()
+    rev_prev = df_prev['Gross Revenue'].sum()
+    if rev_prev == 0:
+        st.info("Not enough previous day data.")
+        return
+    pct_drop = 100 * (rev_last - rev_prev) / rev_prev
+    st.markdown(f"**Revenue {'dropped' if pct_drop < 0 else 'increased'} {abs(pct_drop):.1f}% (${rev_prev:,.0f} → ${rev_last:,.0f}) vs previous day.**")
+    # Find top 3 negative contributors by package
+    merged = pd.merge(
+        df_last.groupby('Package').agg({'Gross Revenue':'sum','FillRate':'mean','Margin (%)':'mean','IVT (%)':'mean'}).rename(columns=lambda x: x+'_last'),
+        df_prev.groupby('Package').agg({'Gross Revenue':'sum','FillRate':'mean','Margin (%)':'mean','IVT (%)':'mean'}).rename(columns=lambda x: x+'_prev'),
+        left_index=True, right_index=True, how='outer').fillna(0)
+    merged['Rev Δ'] = merged['Gross Revenue_last'] - merged['Gross Revenue_prev']
+    merged['Fill Δ'] = merged['FillRate_last'] - merged['FillRate_prev']
+    merged['Margin Δ'] = merged['Margin (%)_last'] - merged['Margin (%)_prev']
+    merged['IVT Δ'] = merged['IVT (%)_last'] - merged['IVT (%)_prev']
+    biggest = merged.sort_values('Rev Δ').head(3)
+    for i, (pkg, row) in enumerate(biggest.iterrows(), 1):
+        st.markdown(
+            f"- 🥇 **{pkg}:** {row['Rev Δ']:+.0f}$, fill rate {row['Fill Δ']:+.1f}%, margin {row['Margin Δ']:+.1f}%, IVT {row['IVT Δ']:+.1f}%"
+        )
+    st.markdown("**Top Reasons:**")
+    st.markdown("1. Lower fill rate on high-revenue packages  \n2. Margin shrinkage  \n3. IVT increased, reducing valid impressions")
 
-    df['Gross Revenue'] = df['Gross Revenue'].apply(clean_num)
-    df['Revenue cost'] = df['Revenue cost'].apply(clean_num)
-    df['eCPM'] = df['eCPM'].apply(clean_num)
-    df['Publisher Impressions'] = df['Publisher Impressions'].apply(clean_num)
-    df['FillRate'] = df['FillRate'].astype(str).str.replace('%','').astype(float) # Already in percent
-    # Don't divide FillRate by 100!
+def show_ivt_margin_alert(df):
+    if df.empty: 
+        st.info("No data to show.")
+        return
+    df['Date'] = pd.to_datetime(df['Date'])
+    last_date = df['Date'].max()
+    last_day = df[df['Date'] == last_date].copy()
+    last_day = last_day[['Package','RPM','IVT (%)','Margin (%)','Alert']]
+    show = last_day[(last_day['IVT (%)'] > 10) | (last_day['Margin (%)'] < 20)]
+    st.dataframe(show, hide_index=True)
 
-    # Margin calculation
-    df['Margin'] = ((df['Gross Revenue'] - df['Revenue cost']) / df['Gross Revenue']) * 100
-
-    latest_date = df['Date'].max()
-    previous_date = df[df['Date'] < latest_date]['Date'].max()
-
-    # Top 10 by Gross Revenue for latest_date
-    latest = df[df['Date'] == latest_date].copy()
-    prev = df[df['Date'] == previous_date].copy()
-
-    top10 = latest.sort_values('Gross Revenue', ascending=False).head(10)
-    
-    st.subheader(f"Top 10 Packages by Gross Revenue – {latest_date.strftime('%Y-%m-%d')}")
-    for _, row in top10.iterrows():
-        pkg = row['Package']
-        prev_row = prev[prev['Package'] == pkg]
-        if not prev_row.empty:
-            prev_row = prev_row.iloc[0]
-            rev_change = pct(row['Gross Revenue'], prev_row['Gross Revenue'])
-            margin_today = row['Margin']
-            margin_prev = prev_row['Margin']
-            main_driver = ""
-            # Drivers: eCPM, FillRate, Imps (find biggest change %)
-            driver_candidates = [
-                ('eCPM', pct(row['eCPM'], prev_row['eCPM'])),
-                ('Fill Rate', pct(row['FillRate'], prev_row['FillRate'])),
-                ('Impressions', pct(row['Publisher Impressions'], prev_row['Publisher Impressions'])),
-            ]
-            main_metric, main_change = max(driver_candidates, key=lambda x: abs(x[1]))
-            main_driver = f"{main_metric} {'up' if main_change > 0 else 'down'} {abs(main_change)}%"
-
-            color = "#22B573" if rev_change > 0 else "#e74c3c"
-            sign = "+" if rev_change > 0 else ""
-            st.markdown(
-                f"**{pkg} ({row['Ad format']})**  \n"
-                f"Revenue: <b>{int(row['Gross Revenue']):,}</b> ({latest_date.strftime('%Y-%m-%d')}) | "
-                f"<b>{int(prev_row['Gross Revenue']):,}</b> ({previous_date.strftime('%Y-%m-%d')}) "
-                f"<span style='color:{color};font-weight:bold;'>[{sign}{rev_change}%]</span>  \n"
-                f"Margin: {margin_today:.2f}% ({latest_date.strftime('%Y-%m-%d')}) | {margin_prev:.2f}% ({previous_date.strftime('%Y-%m-%d')})  \n"
-                f"Main driver: {main_driver}  \n"
-                f"eCPM: {row['eCPM']:.2f} ➡️ {prev_row['eCPM']:.2f}  \n"
-                f"Fill Rate: {row['FillRate']:.2f}% ➡️ {prev_row['FillRate']:.2f}%  \n"
-                f"Imps: {int(row['Publisher Impressions']):,} ➡️ {int(prev_row['Publisher Impressions']):,}",
-                unsafe_allow_html=True
-            )
+def show_revenue_drop_table(df):
+    if df.empty: return
+    df['Date'] = pd.to_datetime(df['Date'])
+    last_date = df['Date'].max()
+    prev_date = last_date - pd.Timedelta(days=1)
+    last = df[df['Date']==last_date]
+    prev = df[df['Date']==prev_date]
+    merged = pd.merge(
+        last[['Package','Gross Revenue','Score']],
+        prev[['Package','Gross Revenue']].rename(columns={'Gross Revenue':'Prev Gross Revenue'}),
+        on='Package', how='inner'
+    )
+    merged['Δ'] = merged['Gross Revenue'] - merged['Prev Gross Revenue']
+    merged['% Drop'] = 100*(merged['Δ']/merged['Prev Gross Revenue'])
+    show = merged[(merged['Gross Revenue'] > 50) & (merged['% Drop'] < -20)]
+    # Score color
+    def score_circle(score):
+        if score >= 75:
+            return f"{int(score)} 🟢"
+        elif score >= 55:
+            return f"{int(score)} 🟡"
         else:
-            st.markdown(
-                f"**{pkg} ({row['Ad format']})**  \n"
-                f"Revenue: <b>{int(row['Gross Revenue']):,}</b> ({latest_date.strftime('%Y-%m-%d')}) | "
-                f"No data for previous date."
-            )
-        st.markdown("---")
+            return f"{int(score)} 🔴"
+    show['Score'] = show['Score'].apply(score_circle)
+    show['Gross Revenue'] = show['Gross Revenue'].map('${:,.0f}'.format)
+    show['Prev Gross Revenue'] = show['Prev Gross Revenue'].map('${:,.0f}'.format)
+    show['Δ'] = show['Δ'].map('${:,.0f}'.format)
+    show['% Drop'] = show['% Drop'].map('{:.0f}%'.format)
+    show = show.rename(columns={
+        'Gross Revenue':'Last Day Rev',
+        'Prev Gross Revenue':'Prev Day Rev'
+    })
+    st.dataframe(show[['Package','Last Day Rev','Prev Day Rev','Δ','% Drop','Score']], hide_index=True)
