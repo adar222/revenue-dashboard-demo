@@ -18,7 +18,7 @@ def safe_col(df, name):
 
 if uploaded_file:
     df = pd.read_excel(uploaded_file)
-    st.write("Columns detected:", df.columns.tolist())  # For debugging, remove after all works
+    st.write("Columns detected:", df.columns.tolist())  # Remove this after debugging
 
     # Safely find column names
     advertiser_col = safe_col(df, 'Advertiser')
